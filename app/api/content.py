@@ -63,6 +63,13 @@ def save(resource, payload, db, admin, item_id=None):
         repo.get("interview-categories", values["category_id"])
     table = table_for(resource)
     if item_id is None:
+        if resource == "note-items":
+            last_order = db.scalar(
+                select(func.max(table.c.item_order)).where(
+                    table.c.note_id == values["note_id"]
+                )
+            )
+            values["item_order"] = (last_order or 0) + 1
         if "created_by" in table.c:
             values["created_by"] = admin["id"]
         result = db.execute(table.insert().values(**values))

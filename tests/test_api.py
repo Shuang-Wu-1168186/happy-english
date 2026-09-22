@@ -125,6 +125,29 @@ def test_admin_crud_validation_and_delete(client):
     assert client.get(f"/api/content/sentences/{item_id}").status_code == 404
 
 
+def test_new_note_items_append_to_the_note(client):
+    headers = sign_in(client)
+    payload = {
+        "note_id": 1,
+        "item_type": "vocab",
+        "item_title": "first new card",
+        "raw_text": "first new card",
+        "english_text": "first new card",
+        "chinese_text": "第一张新卡片",
+    }
+    first = client.post("/api/content/note-items", headers=headers, json=payload)
+    second = client.post(
+        "/api/content/note-items",
+        headers=headers,
+        json={**payload, "item_title": "second new card", "raw_text": "second new card"},
+    )
+    assert first.status_code == second.status_code == 201
+    assert first.json()["item_order"] == 1
+    assert second.json()["item_order"] == 2
+    items = client.get("/api/content/notes/1").json()["items"]
+    assert [item["item_title"] for item in items][-2:] == ["first new card", "second new card"]
+
+
 def test_interview_children_replaced_in_transaction(client):
     headers = sign_in(client)
     payload = {
