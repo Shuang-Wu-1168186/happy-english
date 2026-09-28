@@ -6,5 +6,6 @@ cryptography>=42
 pydantic-settings>=2.6,<3
 itsdangerous>=2.2,<3
 bcrypt>=4.2,<5
+httpx>=0.28,<1
 python-multipart>=0.0.20,<1
 Pillow>=11,<13

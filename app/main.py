@@ -9,10 +9,11 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 
-from app.api import accounts, content, audio
+from app.api import accounts, audio, content, learning_catalog, learning_progress, membership, progress
 from app.core.config import Settings
 from app.core.database import make_engine
-from app.core.security import read_session
+from app.core.security import SESSION_HEADER, read_session
+from app.services.wechat import WeChatMiniProgramClient
 
 
 def create_app(settings: Settings | None = None, engine=None):
@@ -22,11 +23,15 @@ def create_app(settings: Settings | None = None, engine=None):
     @asynccontextmanager
     async def lifespan(app):
         yield
+        close_wechat = getattr(app.state.wechat_miniprogram, "close", None)
+        if close_wechat:
+            close_wechat()
         engine.dispose()
 
     app = FastAPI(title="Happy English API", version="1.0.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.engine = engine
+    app.state.wechat_miniprogram = WeChatMiniProgramClient(settings)
 
     @app.middleware("http")
     async def session_and_csrf(request: Request, call_next):
@@ -49,7 +54,8 @@ def create_app(settings: Settings | None = None, engine=None):
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE"],
-        allow_headers=["Content-Type", "X-CSRF-Token"],
+        allow_headers=["Content-Type", "X-CSRF-Token", SESSION_HEADER],
+        expose_headers=[SESSION_HEADER],
     )
 
     @app.exception_handler(IntegrityError)
@@ -80,6 +86,10 @@ def create_app(settings: Settings | None = None, engine=None):
 
     app.include_router(accounts.router, prefix="/api")
     app.include_router(content.router, prefix="/api")
+    app.include_router(learning_catalog.router, prefix="/api")
+    app.include_router(membership.router, prefix="/api")
+    app.include_router(learning_progress.router, prefix="/api")
+    app.include_router(progress.router, prefix="/api")
     app.include_router(audio.router, prefix="/api")
     settings.static_dir.mkdir(parents=True, exist_ok=True)
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)

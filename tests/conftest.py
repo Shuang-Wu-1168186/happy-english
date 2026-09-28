@@ -3,7 +3,31 @@ from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
+from app.services.wechat import VerifiedPhoneNumber, WeChatCredentialError
 from tests.support import sample_engine
+
+
+class FakeWeChatMiniProgramClient:
+    def __init__(self):
+        self.login_codes = []
+        self.phone_codes = []
+        self.phone = VerifiedPhoneNumber(
+            canonical="+8613800138000",
+            lookup_values=("+8613800138000", "13800138000", "8613800138000"),
+            normalized_lookup_values=("8613800138000", "13800138000"),
+        )
+
+    def exchange_login_code(self, login_code):
+        self.login_codes.append(login_code)
+        if login_code == "expired":
+            raise WeChatCredentialError("expired")
+        return "test-openid"
+
+    def get_phone_number(self, phone_code):
+        self.phone_codes.append(phone_code)
+        if phone_code == "expired":
+            raise WeChatCredentialError("expired")
+        return self.phone
 
 
 @pytest.fixture
@@ -14,8 +38,12 @@ def client(tmp_path):
         static_dir=tmp_path / "static",
         uploads_dir=tmp_path / "static" / "uploads",
         audio_enabled=False,
+        wechat_miniprogram_app_id="wx-test-app",
+        wechat_miniprogram_app_secret="test-mini-program-secret",
     )
-    with TestClient(create_app(settings, sample_engine())) as client:
+    app = create_app(settings, sample_engine())
+    app.state.wechat_miniprogram = FakeWeChatMiniProgramClient()
+    with TestClient(app) as client:
         yield client
 
 

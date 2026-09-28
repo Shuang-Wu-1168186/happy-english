@@ -5,16 +5,17 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from app.api.dependencies import Admin, Db, User, current_user
 from app.core.security import issue_session
-from app.repositories.accounts import AccountRepository, public_user
 from app.schemas import (
     AdminCreateInput,
     AdminUpdateInput,
     Credentials,
+    MiniProgramLoginInput,
     PasswordInput,
     ProfileInput,
     SignupInput,
 )
-from app.services.accounts import AccountService
+from app.services.accounts import AccountService, LoginAuditService, public_user
+from app.services.wechat import WeChatCredentialError, WeChatServiceError
 
 router = APIRouter(tags=["accounts"])
 
@@ -41,8 +42,6 @@ def session_info(request: Request, response: Response, db: Db):
     user = None
     if request.state.session.get("uid"):
         # Account status and role always come from the database, never an old cookie.
-        from fastapi import HTTPException
-
         try:
             user = current_user(request, db)
         except HTTPException as error:
@@ -50,7 +49,12 @@ def session_info(request: Request, response: Response, db: Db):
                 raise
     csrf = request.state.session.get("csrf")
     if not csrf or (request.state.session.get("uid") and not user):
-        csrf = issue_session(response, request.app.state.settings)
+        csrf = issue_session(
+            response,
+            request.app.state.settings,
+            user,
+            auth_method=request.state.session.get("auth_method") if user else None,
+        )
     return {
         "user": public_user(user) if user else None,
         "csrf_token": csrf,
@@ -71,6 +75,36 @@ def login(data: Credentials, request: Request, response: Response, db: Db):
     service.record_login(username=username, user_row=user, success=True, **metadata)
     csrf = issue_session(response, request.app.state.settings, user)
     return {"user": public_user(user), "csrf_token": csrf}
+
+
+@router.post("/auth/miniprogram/login")
+def miniprogram_login(data: MiniProgramLoginInput, request: Request, response: Response, db: Db):
+    service = AccountService(db)
+    metadata = {"login_ip": login_ip(request), "user_agent": login_user_agent(request)}
+    try:
+        wechat = request.app.state.wechat_miniprogram
+        # Exchange wx.login's code as well as the phone authorization code. Neither phone
+        # numbers nor account identifiers are accepted from the Mini Program directly.
+        wechat.exchange_login_code(data.login_code)
+        phone = wechat.get_phone_number(data.phone_code)
+        user, created = service.login_with_miniprogram_phone(phone)
+    except WeChatCredentialError as error:
+        service.record_login(username="wechat_miniprogram", user_row=None, success=False, **metadata)
+        raise HTTPException(401, "微信登录凭证已失效，请重新授权手机号。") from error
+    except WeChatServiceError as error:
+        service.record_login(username="wechat_miniprogram", user_row=None, success=False, **metadata)
+        raise HTTPException(503, "微信登录服务暂时不可用，请稍后重试。") from error
+    except HTTPException:
+        service.record_login(username="wechat_miniprogram", user_row=None, success=False, **metadata)
+        raise
+    service.record_login(username=user["username"], user_row=user, success=True, **metadata)
+    csrf = issue_session(
+        response,
+        request.app.state.settings,
+        user,
+        auth_method="wechat_miniprogram",
+    )
+    return {"user": public_user(user), "csrf_token": csrf, "created": created}
 
 
 @router.post("/auth/logout")
@@ -104,8 +138,9 @@ def users(
     role: str = "",
     status: str = "",
     page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
 ):
-    return AccountRepository(db).list(q, role, status, page)
+    return AccountService(db).list_users(q, role, status, page, page_size)
 
 
 @router.get("/admin/login-audits")
@@ -119,9 +154,7 @@ def login_audits(
     end_date: date | None = None,
     page: int = Query(1, ge=1),
 ):
-    if start_date and end_date and start_date > end_date:
-        raise HTTPException(422, "Start date must not be after end date.")
-    return AccountRepository(db).list_login_audits(q, login_ip, outcome, start_date, end_date, page)
+    return LoginAuditService(db).list(q, login_ip, outcome, start_date, end_date, page)
 
 
 @router.post("/admin/users", status_code=201)

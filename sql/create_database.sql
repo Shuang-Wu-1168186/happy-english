@@ -32,6 +32,7 @@ CREATE TABLE `user` (
                         PRIMARY KEY (`id`),
                         UNIQUE KEY `uk_user_username` (`username`),
                         UNIQUE KEY `uk_user_email` (`email`),
+                        UNIQUE KEY `uk_user_contact_number` (`contact_number`),
                         KEY `idx_user_role` (`role`),
                         KEY `idx_user_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
@@ -1020,3 +1021,8 @@ WHERE c.`priority_order` BETWEEN 1 AND 70
 # the MySQL client. The companion migration is also safe to run by itself.
 source update_kids_cards_remaining.sql
 source update_kids_cards_unit6_7.sql
+source 20260925_add_learning_catalog.sql
+source 20260925_redesign_learning_progress.sql
+source 20260926_add_membership_material_management.sql
+source 20260927_add_learning_course_material_mapping.sql
+source 20260927_add_learning_topic_course_mapping.sql

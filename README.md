@@ -63,13 +63,36 @@ data/static/              # 图片和上传文件（本地数据，不提交 Git
 tests/                     # 使用独立 SQLite 数据库的接口测试
 ```
 
-登录使用签名 HttpOnly Cookie，所有写入接口校验 `X-CSRF-Token`。调用顺序：
+网页登录使用签名 HttpOnly Cookie，所有写入接口校验 `X-CSRF-Token`。调用顺序：
 
 1. `GET /api/auth/session` 获取匿名 Cookie 和 `csrf_token`。
 2. 发送 `POST /api/auth/login`，带 Cookie、`X-CSRF-Token` 和 `{ "username": "...", "password": "..." }`。
 3. 登录后使用新返回的 token；退出和修改密码也会返回新 token。
 
 API 浏览器请求需携带凭据。开发前端的 Vite 代理已配置；不同端口直接访问时，在 `CORS_ORIGINS` 设置明确的前端来源。参考 [FastAPI CORS 文档](https://fastapi.tiangolo.com/tutorial/cors/)。
+
+### 微信小程序手机号登录
+
+小程序调用 `wx.login` 和 `getPhoneNumber`，将两个一次性 code 提交到 `POST /api/auth/miniprogram/login`：
+
+```json
+{
+  "login_code": "wx.login 返回的 code",
+  "phone_code": "getPhoneNumber 返回的 code"
+}
+```
+
+后端使用微信服务端接口校验 code 并取得手机号，先按 `user.contact_number` 查找账户，找不到时自动创建一个 `learner` 账户。手机号不会由小程序直接提交。响应沿用 `user`、`csrf_token`，并带 `created` 标识；小程序应保存响应头 `X-Happy-English-Session`，后续每次请求将它作为同名 Header 发回。该 Header 形式的签名会话适用于小程序不稳定的 Cookie 存储，和网页登录的账户状态、角色检查及密码变更失效机制相同。
+
+部署前在 `.env` 配置微信小程序的服务端凭据，不能将 `AppSecret` 放入小程序代码：
+
+```sh
+WECHAT_MINIPROGRAM_APP_ID=wx...
+WECHAT_MINIPROGRAM_APP_SECRET=...
+WECHAT_REQUEST_TIMEOUT_SECONDS=10
+```
+
+已有数据库还需要先执行一次 [20260925_add_miniprogram_phone_login.sql](sql/20260925_add_miniprogram_phone_login.sql)。该脚本会将空联系方式转为 `NULL` 并为手机号建立唯一索引；执行前先处理脚本查询出的重复手机号。
 
 ### 登录审计表升级
 
@@ -110,3 +133,25 @@ Kokoro 模型与 WAV 缓存在 `~/.cache/happyenglish/kokoro`，可通过 `KOKOR
 ```
 
 生产环境设置随机 `SECRET_KEY`、`APP_ENV=production`、`COOKIE_SECURE=true`，由 HTTPS 反向代理转发 `/api` 与 `/static`；静态前端在另一个服务提供。上传文件通过 `data/static` 持久化，数据库独立管理。提供基础 `Dockerfile`，不包含大型音频依赖与模型。前端项目的 `deploy/nginx.conf` 提供同域代理例子。
+
+
+
+Nginx 已配置为直接返回静态图片，不再经过 FastAPI。
+
+配置变更：
+
+新增 location /static/ 块，使用 alias 指向 /home/admin/happy_english_server/happy-english/data/static/
+设置 30 天浏览器缓存（expires 30d + Cache-Control: public）
+关闭该路径的 access_log 减少 IO
+验证结果：
+
+检查项	结果
+图片 Content-Type	✅ image/png（Nginx 直接返回）
+图片大小	✅ 1898426 bytes（与磁盘一致）
+缓存头	✅ max-age=2592000 (30天)
+API /api/health	✅ 正常
+前端页面	✅ 正常
+注意事项：
+
+FastAPI 中的 app.mount("/static", ...) 可保留作为兜底，但生产流量已由 Nginx 处理
+如后续新增其他静态资源子目录，无需修改 Nginx，/static/ 下所有文件均自动由 Nginx 服务

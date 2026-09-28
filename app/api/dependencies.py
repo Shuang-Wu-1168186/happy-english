@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import session_scope
 from app.core.security import password_version
-from app.repositories.accounts import AccountRepository
+from app.dao.accounts import UserDAO
 
 
 def get_db(request: Request):
@@ -17,7 +17,7 @@ Db = Annotated[Session, Depends(get_db)]
 
 def current_user(request: Request, db: Db):
     session = request.state.session
-    user = AccountRepository(db).get(session.get("uid"))
+    user = UserDAO(db).get(session.get("uid"))
     if (
         not user
         or user["status"] != "active"

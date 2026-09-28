@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
     session_seconds: int = Field(default=43200, ge=60)
     audio_enabled: bool = False
+    wechat_miniprogram_app_id: str = ""
+    wechat_miniprogram_app_secret: str = ""
+    wechat_request_timeout_seconds: float = Field(default=10, ge=1, le=60)
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     static_dir: Path = ROOT / "data" / "static"
     uploads_dir: Path = ROOT / "data" / "static" / "uploads"
