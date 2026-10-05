@@ -10,6 +10,7 @@ from app.schemas import (
     LearningMaterialInput,
     LearningMaterialLessonInput,
     LearningModuleInput,
+    LearningLessonSectionsInput,
     LearningTemplateInput,
     LearningTopicInput,
     NoteCoursewareGenerateInput,
@@ -298,6 +299,31 @@ def update_material_lesson(lesson_id: int, payload: LearningMaterialLessonInput,
 @router.delete("/admin/learning-material-lessons/{lesson_id}", status_code=204)
 def delete_material_lesson(lesson_id: int, db: Db, admin: Admin):
     LearningCatalogService(db).delete_material_lesson(lesson_id)
+
+
+@router.get("/admin/learning-material-lessons/{lesson_id}/sections")
+def list_learning_lesson_sections(lesson_id: int, db: Db, admin: Admin):
+    return {
+        "items": LearningCatalogService(db).lesson_content.list_for_lesson(
+            lesson_id, published_only=False
+        )
+    }
+
+
+@router.put("/admin/learning-material-lessons/{lesson_id}/sections")
+def replace_learning_lesson_sections(
+    lesson_id: int,
+    payload: LearningLessonSectionsInput,
+    db: Db,
+    admin: Admin,
+):
+    service = LearningCatalogService(db)
+    return service.lesson_content.replace(lesson_id, payload, admin)
+
+
+@router.post("/admin/learning-material-lessons/{lesson_id}/publish")
+def publish_learning_lesson(lesson_id: int, db: Db, admin: Admin):
+    return LearningCatalogService(db).lesson_content.publish(lesson_id, admin)
 
 
 @router.get("/admin/learning-material-lessons/{lesson_id}/courseware-blocks")

@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+logs/
 # Keep browser-playable subtitle tracks while excluding source audio and other generated data.
 data/*
 !data/audio/

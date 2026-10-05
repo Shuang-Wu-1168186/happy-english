@@ -51,6 +51,17 @@ def generated_hero_targets(db, lesson_ids):
     ]
     if lesson_ids:
         conditions.append(m.learning_material_lesson.c.id.in_(lesson_ids))
+    material_topic_id = (
+        select(m.learning_topic_course.c.topic_id)
+        .join(
+            m.learning_course_material,
+            m.learning_course_material.c.course_id == m.learning_topic_course.c.course_id,
+        )
+        .where(m.learning_course_material.c.material_id == m.learning_material.c.id)
+        .order_by(m.learning_topic_course.c.sort_order, m.learning_topic_course.c.id)
+        .limit(1)
+        .scalar_subquery()
+    )
     return db.execute(
         select(
             m.learning_material_lesson.c.id.label("lesson_id"),
@@ -58,7 +69,7 @@ def generated_hero_targets(db, lesson_ids):
             m.learning_material_lesson.c.created_by.label("lesson_created_by"),
             m.learning_material_lesson.c.updated_by.label("lesson_updated_by"),
             m.learning_material.c.id.label("material_id"),
-            m.learning_material.c.topic_id.label("topic_id"),
+            material_topic_id.label("topic_id"),
             m.courseware_block.c.payload_json.label("hero_payload_json"),
             m.courseware_block_source.c.source_locator_json.label("source_locator_json"),
             m.english_note_item.c.id.label("note_item_id"),
@@ -86,7 +97,6 @@ def generated_hero_targets(db, lesson_ids):
             m.learning_material_lesson.c.created_by,
             m.learning_material_lesson.c.updated_by,
             m.learning_material.c.id,
-            m.learning_material.c.topic_id,
             m.courseware_block.c.payload_json,
             m.courseware_block_source.c.source_locator_json,
             m.english_note_item.c.id,

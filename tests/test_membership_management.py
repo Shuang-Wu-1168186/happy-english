@@ -493,6 +493,7 @@ def test_membership_admin_lists_filter_and_paginate(client):
     assert plans.json()["total"] == 2
     assert plans.json()["total_pages"] == 2
     assert len(plans.json()["items"]) == 1
+    assert plans.json()["items"][0]["id"] == created_plans[1]["id"]
 
     benefit = client.post(
         "/api/admin/membership-benefits",

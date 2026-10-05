@@ -1,0 +1,32 @@
+{
+  "generated_from": "local MySQL learning catalogue",
+  "output": "sql/deploy/20261005_learning_catalog_data.sql",
+  "sha256": "250e733d85cbf229534fbcad61a5a442c4a94f9afd81ed8567391c82a40503d4",
+  "counts": {
+    "modules": 6,
+    "templates": 8,
+    "topics": 16,
+    "materials": 84,
+    "courses": 74,
+    "course_materials": 84,
+    "topic_courses": 74,
+    "lessons": 2527,
+    "sections": 13825,
+    "items": 22955,
+    "blocks": 7767,
+    "block_sources": 38149,
+    "membership_plans": 3,
+    "membership_benefits": 2,
+    "plan_benefits": 2,
+    "benefit_courses": 43
+  },
+  "excluded": [
+    "user",
+    "login_audit",
+    "learning_progress",
+    "learning_progress_item",
+    "learning_study_session",
+    "user_membership",
+    "learning_user_course"
+  ]
+}

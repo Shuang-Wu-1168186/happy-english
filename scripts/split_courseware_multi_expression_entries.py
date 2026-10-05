@@ -35,13 +35,24 @@ def generated_targets(db, note_item_ids, material_id=None):
     ]
     if material_id is not None:
         conditions.append(m.learning_material.c.id == material_id)
+    material_topic_id = (
+        select(m.learning_topic_course.c.topic_id)
+        .join(
+            m.learning_course_material,
+            m.learning_course_material.c.course_id == m.learning_topic_course.c.course_id,
+        )
+        .where(m.learning_course_material.c.material_id == m.learning_material.c.id)
+        .order_by(m.learning_topic_course.c.sort_order, m.learning_topic_course.c.id)
+        .limit(1)
+        .scalar_subquery()
+    )
     return db.execute(
         select(
             m.english_note_item.c.id.label("note_item_id"),
             m.english_note_item.c.created_by,
             m.english_note_item.c.updated_by,
             m.learning_material.c.id.label("material_id"),
-            m.learning_material.c.topic_id,
+            material_topic_id.label("topic_id"),
             m.learning_material.c.title.label("material_title"),
         )
         .select_from(
@@ -66,7 +77,6 @@ def generated_targets(db, note_item_ids, material_id=None):
             m.english_note_item.c.created_by,
             m.english_note_item.c.updated_by,
             m.learning_material.c.id,
-            m.learning_material.c.topic_id,
             m.learning_material.c.title,
         )
         .order_by(m.learning_material.c.id, m.english_note_item.c.id)

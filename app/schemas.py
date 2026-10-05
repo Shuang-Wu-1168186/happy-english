@@ -288,7 +288,7 @@ class LearningTemplateInput(Input):
     template_version: int = Field(default=1, ge=1, le=1000)
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=50000)
-    content_kind: Literal["courseware", "dialogue", "source"] = "source"
+    content_kind: Literal["courseware", "dialogue", "structured", "source"] = "source"
     supported_clients: list[Literal["web", "mini"]] = Field(
         default_factory=lambda: ["web", "mini"], min_length=1, max_length=2
     )
@@ -305,7 +305,10 @@ class LearningTemplateInput(Input):
 
 
 class LearningMaterialInput(Input):
-    topic_id: int = Field(gt=0)
+    # Kept temporarily for API callers saved before the course-material
+    # migration. It is ignored on write: materials are linked to topics
+    # exclusively through courses.
+    topic_id: int | None = Field(default=None, gt=0)
     template_id: int | None = Field(default=None, gt=0)
     material_code: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,119}$")
     title: str = Field(min_length=1, max_length=255)
@@ -320,19 +323,55 @@ class LearningMaterialInput(Input):
     sort_order: int = 0
     is_published: Literal[0, 1] = 1
 
+    @field_validator("material_code", mode="before")
+    @classmethod
+    def normalise_material_code(cls, value):
+        return value.lower() if isinstance(value, str) else value
+
+
+class LearningLessonItemInput(Input):
+    item_code: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,119}$")
+    item_order: int = 0
+    title: str = Field(default="", max_length=255)
+    payload: dict[str, Any]
+    status: Literal["draft", "published", "archived"] = "draft"
+
+
+class LearningLessonSectionInput(Input):
+    section_code: Literal[
+        "core_vocabulary",
+        "situational_dialogues",
+        "key_sentence_patterns",
+        "speaking_practice",
+        "mini_exercises",
+        "useful_tips",
+        "extended_reading",
+    ]
+    title: str = Field(min_length=1, max_length=150)
+    title_en: str = Field(min_length=1, max_length=150)
+    sort_order: int = 0
+    status: Literal["draft", "published", "archived"] = "draft"
+    items: list[LearningLessonItemInput] = Field(default_factory=list, max_length=200)
+
+
+class LearningLessonSectionsInput(Input):
+    sections: list[LearningLessonSectionInput] = Field(min_length=1, max_length=7)
+
 
 class LearningMaterialLessonInput(Input):
     lesson_code: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,119}$")
     title: str = Field(min_length=1, max_length=255)
     title_en: str = Field(default="", max_length=255)
     summary: str = Field(default="", max_length=50000)
+    illustration_url: str = Field(default="", max_length=500)
     source_resource: str = Field(default="", max_length=80)
     source_reference_id: int | None = Field(default=None, gt=0)
     content: dict[str, Any] | list[Any] | None = None
-    lesson_format: Literal["source", "courseware"] = "source"
+    lesson_format: Literal["source", "structured", "courseware"] = "source"
     estimated_minutes: int | None = Field(default=None, ge=1, le=1440)
     sort_order: int = 0
     is_published: Literal[0, 1] | None = None
+    sections: list[LearningLessonSectionInput] | None = None
 
 
 class CoursewareBlockInput(Input):

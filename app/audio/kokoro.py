@@ -2,15 +2,19 @@
 
 import gc
 import hashlib
+import logging
 import os
 import re
 from threading import Lock
+from time import perf_counter
 
 import numpy as np
 import soundfile as sf
 
 from app.audio.audio_config import CACHE_DIR
 
+
+logger = logging.getLogger(__name__)
 
 # This checkpoint supports Mandarin and the compatible English voice below.
 KOKORO_REPO_ID = "hexgrad/Kokoro-82M-v1.1-zh"
@@ -59,10 +63,17 @@ def get_kokoro_english_g2p_pipeline():
 
     with kokoro_english_g2p_lock:
         if kokoro_english_g2p_pipeline is None:
+            logger.info("audio.tts.g2p_pipeline.initializing language=%s", KOKORO_LANGUAGE)
+            started_at = perf_counter()
             kokoro_english_g2p_pipeline = KPipeline(
                 lang_code=KOKORO_LANGUAGE,
                 repo_id=KOKORO_REPO_ID,
                 model=False,
+            )
+            logger.info(
+                "audio.tts.g2p_pipeline.initialized language=%s duration_ms=%.1f",
+                KOKORO_LANGUAGE,
+                (perf_counter() - started_at) * 1000,
             )
 
     return kokoro_english_g2p_pipeline
@@ -70,8 +81,18 @@ def get_kokoro_english_g2p_pipeline():
 
 def phonemise_english_inside_chinese(text: str) -> str:
     """Convert an embedded English segment to Kokoro-compatible phonemes."""
+    started_at = perf_counter()
+    logger.debug("audio.tts.phonemise.started text_chars=%d", len(text))
     for result in get_kokoro_english_g2p_pipeline()(text):
-        return result.phonemes
+        phonemes = result.phonemes
+        logger.debug(
+            "audio.tts.phonemise.completed input_chars=%d output_chars=%d duration_ms=%.1f",
+            len(text),
+            len(phonemes),
+            (perf_counter() - started_at) * 1000,
+        )
+        return phonemes
+    logger.warning("audio.tts.phonemise.empty input_chars=%d", len(text))
     return ""
 
 
@@ -89,7 +110,8 @@ def get_kokoro_pipeline(language: str = KOKORO_LANGUAGE):
         if language in kokoro_pipelines:
             return kokoro_pipelines[language]
 
-        print(f"Initialising Kokoro TTS pipeline for language={language!r}...")
+        logger.info("audio.tts.pipeline.initializing language=%s", language)
+        started_at = perf_counter()
         if language == KOKORO_CHINESE_LANGUAGE:
             english_pipeline = kokoro_pipelines.get(KOKORO_LANGUAGE)
             if english_pipeline is None:
@@ -112,7 +134,11 @@ def get_kokoro_pipeline(language: str = KOKORO_LANGUAGE):
             }
 
         kokoro_pipelines[language] = KPipeline(**pipeline_kwargs)
-        print(f"Kokoro TTS pipeline initialised for language={language!r}.")
+        logger.info(
+            "audio.tts.pipeline.initialized language=%s duration_ms=%.1f",
+            language,
+            (perf_counter() - started_at) * 1000,
+        )
 
     return kokoro_pipelines[language]
 
@@ -153,6 +179,7 @@ def generate_kokoro_audio(
     speed: float = KOKORO_SPEED,
 ):
     """Generate a Kokoro WAV file."""
+    started_at = perf_counter()
     audio_chunks = []
     audio = None
     audio_data = None
@@ -161,6 +188,13 @@ def generate_kokoro_audio(
         if not text:
             raise ValueError("No speakable text remains after removing decorative symbols.")
 
+        logger.info(
+            "audio.tts.synthesis.started language=%s voice=%s speed=%.2f text_chars=%d",
+            language,
+            voice,
+            speed,
+            len(text),
+        )
         pipeline = get_kokoro_pipeline(language)
         for _, _, audio in pipeline(text, voice=voice, speed=speed):
             if audio is not None:
@@ -171,6 +205,28 @@ def generate_kokoro_audio(
 
         audio_data = audio_chunks[0] if len(audio_chunks) == 1 else np.concatenate(audio_chunks)
         sf.write(output_file, audio_data, KOKORO_SAMPLE_RATE)
+        output_bytes = os.path.getsize(output_file)
+        sample_count = len(audio_data)
+        logger.info(
+            "audio.tts.synthesis.completed language=%s voice=%s chunks=%d samples=%d audio_ms=%.1f output_bytes=%d duration_ms=%.1f",
+            language,
+            voice,
+            len(audio_chunks),
+            sample_count,
+            sample_count / KOKORO_SAMPLE_RATE * 1000,
+            output_bytes,
+            (perf_counter() - started_at) * 1000,
+        )
+
+    except (RuntimeError, OSError, ValueError) as exc:
+        logger.error(
+            "audio.tts.synthesis.failed language=%s voice=%s error_type=%s duration_ms=%.1f",
+            language,
+            voice,
+            type(exc).__name__,
+            (perf_counter() - started_at) * 1000,
+        )
+        raise
 
     finally:
         # Release request-local arrays whether inference succeeds or fails.

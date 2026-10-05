@@ -13,6 +13,8 @@ app = create_app(
         secret_key="browser-test-secret-key-123456789012",
         static_dir=root / "static",
         uploads_dir=root / "static" / "uploads",
+        log_dir=root / "logs",
+        log_console=False,
         audio_enabled=False,
     ),
     sample_engine(f"sqlite:///{root / 'browser.sqlite3'}"),

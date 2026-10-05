@@ -336,33 +336,6 @@ phonics_lesson = Table(
     UniqueConstraint("lesson_code"),
 )
 
-daily_spoken_dialogue_item = Table(
-    "daily_spoken_dialogue_item",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("lesson_code", String(100), nullable=False),
-    Column("chapter_title", String(200), nullable=False),
-    Column("lesson_title", String(200), nullable=False),
-    Column("lesson_order", Integer, nullable=False, server_default=text("0")),
-    Column("section_code", String(50), nullable=False),
-    Column("section_title", String(200), nullable=False),
-    Column("section_order", Integer, nullable=False, server_default=text("0")),
-    Column("item_type", String(50), nullable=False),
-    Column("item_order", Integer, nullable=False),
-    Column("speaker", String(100), nullable=True),
-    Column("item_title", String(255), nullable=True),
-    Column("english_text", Text, nullable=False),
-    Column("chinese_text", Text, nullable=True),
-    Column("pronunciation", String(255), nullable=True),
-    Column("explanation", Text, nullable=True),
-    Column("examples", Text, nullable=True),
-    Column("keywords", String(500), nullable=True),
-    Column("is_published", Integer, nullable=False, server_default=text("1")),
-    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
-    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
-    UniqueConstraint("lesson_code", "item_order"),
-)
-
 # The learning catalogue separates learner-facing courses from materials.  A
 # course represents the product a learner joins; a material is one whole book,
 # card set, question bank, or note collection; material lessons point at the
@@ -448,12 +421,6 @@ learning_material = Table(
     metadata,
     Column("id", Integer, primary_key=True),
     Column(
-        "topic_id",
-        Integer,
-        ForeignKey("learning_topic.id", ondelete="RESTRICT"),
-        nullable=False,
-    ),
-    Column(
         "template_id",
         Integer,
         ForeignKey("learning_template.id", ondelete="RESTRICT"),
@@ -475,11 +442,10 @@ learning_material = Table(
     Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
     Column("updated_by", Integer, nullable=True),
     Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
-    UniqueConstraint("topic_id", "material_code"),
+    UniqueConstraint("material_code"),
 )
 Index(
-    "idx_learning_material_topic_published_order",
-    learning_material.c.topic_id,
+    "idx_learning_material_published_order",
     learning_material.c.is_published,
     learning_material.c.sort_order,
 )
@@ -498,10 +464,14 @@ learning_material_lesson = Table(
     Column("title", String(255), nullable=False),
     Column("title_en", String(255), nullable=True),
     Column("summary", Text, nullable=True),
+    Column("illustration_url", String(500), nullable=True),
     Column("source_resource", String(80), nullable=True),
     Column("source_reference_id", Integer, nullable=True),
     Column("content_json", Text, nullable=True),
     Column("lesson_format", String(50), nullable=False, server_default=text("'source'")),
+    Column("lesson_schema_version", Integer, nullable=False, server_default=text("'1'")),
+    Column("content_status", String(20), nullable=False, server_default=text("'draft'")),
+    Column("published_at", DateTime, nullable=True),
     Column("estimated_minutes", Integer, nullable=True),
     Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
     Column("is_published", Integer, nullable=False, server_default=text("'1'")),
@@ -526,6 +496,62 @@ Index(
     "idx_learning_material_lesson_format",
     learning_material_lesson.c.lesson_format,
     learning_material_lesson.c.is_published,
+)
+
+learning_lesson_section = Table(
+    "learning_lesson_section",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "lesson_id",
+        Integer,
+        ForeignKey("learning_material_lesson.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("section_code", String(50), nullable=False),
+    Column("title", String(150), nullable=False),
+    Column("title_en", String(150), nullable=False),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("status", String(20), nullable=False, server_default=text("'draft'")),
+    Column("created_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("lesson_id", "section_code"),
+)
+Index(
+    "idx_learning_lesson_section_order",
+    learning_lesson_section.c.lesson_id,
+    learning_lesson_section.c.status,
+    learning_lesson_section.c.sort_order,
+)
+
+learning_lesson_item = Table(
+    "learning_lesson_item",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "section_id",
+        Integer,
+        ForeignKey("learning_lesson_section.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("item_code", String(120), nullable=False),
+    Column("item_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("title", String(255), nullable=True),
+    Column("payload_json", Text, nullable=False),
+    Column("status", String(20), nullable=False, server_default=text("'draft'")),
+    Column("created_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("section_id", "item_code"),
+)
+Index(
+    "idx_learning_lesson_item_order",
+    learning_lesson_item.c.section_id,
+    learning_lesson_item.c.status,
+    learning_lesson_item.c.item_order,
 )
 
 courseware_block = Table(

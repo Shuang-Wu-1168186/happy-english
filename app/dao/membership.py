@@ -26,7 +26,7 @@ class MembershipPlanDAO(BaseTableDAO):
             conditions.append(self.table.c.status == status)
         return self.paginate_where(
             *conditions,
-            order_by=[self.table.c.sort_order, self.table.c.id],
+            order_by=self.newest_first_ordering(),
             page=page,
             page_size=page_size,
         )
@@ -72,7 +72,7 @@ class MembershipBenefitDAO(BaseTableDAO):
             conditions.append(self.table.c.benefit_type == benefit_type)
         return self.paginate_where(
             *conditions,
-            order_by=[self.table.c.sort_order, self.table.c.id],
+            order_by=self.newest_first_ordering(),
             page=page,
             page_size=page_size,
         )
@@ -162,7 +162,7 @@ class UserMembershipDAO(BaseTableDAO):
                 )
                 .select_from(base)
                 .where(*conditions)
-                .order_by(self.table.c.starts_at.desc(), self.table.c.id.desc())
+                .order_by(*self.newest_first_ordering())
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )

@@ -15,6 +15,9 @@ class LearningCatalogTableDAO(BaseTableDAO):
     def ordering(self):
         return [self.table.c.sort_order, self.table.c.id]
 
+    def admin_ordering(self):
+        return self.newest_first_ordering()
+
     def get_published(self, item_id):
         return self.find_by_id(item_id, *self.visible_conditions())
 
@@ -55,7 +58,7 @@ class LearningTopicDAO(LearningCatalogTableDAO):
             conditions.append(self.table.c.is_published == is_published)
         return self.paginate_where(
             *conditions,
-            order_by=self.ordering(),
+            order_by=self.admin_ordering(),
             page=page,
             page_size=page_size,
         )
@@ -67,7 +70,7 @@ class LearningTemplateDAO(BaseTableDAO):
     table = m.learning_template
 
     def ordering(self):
-        return [self.table.c.sort_order, self.table.c.id]
+        return self.newest_first_ordering()
 
     def list_active(self):
         return self.list_where(
@@ -81,7 +84,16 @@ class LearningMaterialDAO(LearningCatalogTableDAO):
     def list_materials(self, topic_id=None):
         conditions = []
         if topic_id is not None:
-            conditions.append(self.table.c.topic_id == topic_id)
+            material_ids = (
+                select(m.learning_course_material.c.material_id)
+                .join(
+                    m.learning_topic_course,
+                    m.learning_topic_course.c.course_id
+                    == m.learning_course_material.c.course_id,
+                )
+                .where(m.learning_topic_course.c.topic_id == topic_id)
+            )
+            conditions.append(self.table.c.id.in_(material_ids))
         return self.list_published(*conditions)
 
     def list_admin_materials(self, q="", topic_id=None, is_published=None, page=1, page_size=20):
@@ -97,12 +109,21 @@ class LearningMaterialDAO(LearningCatalogTableDAO):
                 )
             )
         if topic_id is not None:
-            conditions.append(self.table.c.topic_id == topic_id)
+            material_ids = (
+                select(m.learning_course_material.c.material_id)
+                .join(
+                    m.learning_topic_course,
+                    m.learning_topic_course.c.course_id
+                    == m.learning_course_material.c.course_id,
+                )
+                .where(m.learning_topic_course.c.topic_id == topic_id)
+            )
+            conditions.append(self.table.c.id.in_(material_ids))
         if is_published is not None:
             conditions.append(self.table.c.is_published == is_published)
         return self.paginate_where(
             *conditions,
-            order_by=self.ordering(),
+            order_by=self.admin_ordering(),
             page=page,
             page_size=page_size,
         )
@@ -167,7 +188,7 @@ class LearningCourseDAO(LearningCatalogTableDAO):
             conditions.append(self.table.c.is_published == is_published)
         return self.paginate_where(
             *conditions,
-            order_by=self.ordering(),
+            order_by=self.admin_ordering(),
             page=page,
             page_size=page_size,
         )

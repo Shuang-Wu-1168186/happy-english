@@ -261,19 +261,4 @@ def sample_engine(url="sqlite://"):
                 "quiz_answer": "cat",
             },
         )
-        c.execute(
-            m.daily_spoken_dialogue_item.insert(),
-            {
-                "id": 1,
-                "lesson_code": "shopping",
-                "chapter_title": "Shopping",
-                "lesson_title": "Buy a shirt",
-                "section_code": "dialogue",
-                "section_title": "At the shop",
-                "item_type": "dialogue",
-                "item_order": 1,
-                "english_text": "How much is this?",
-                "chinese_text": "这件多少钱？",
-            },
-        )
     return engine

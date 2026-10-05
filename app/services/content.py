@@ -7,7 +7,6 @@ from pydantic import ValidationError
 
 from app import schemas as s
 from app.dao.content import (
-    DailySpokenDialogueItemDAO,
     EnglishNoteDAO,
     EnglishNoteItemDAO,
     EnglishTextbookLessonDAO,
@@ -170,10 +169,6 @@ class PhonicsLessonService(ContentTableService):
     dao_type = PhonicsLessonDAO
 
 
-class DailySpokenDialogueItemService(ContentTableService):
-    dao_type = DailySpokenDialogueItemDAO
-
-
 CONTENT_TABLE_SERVICE_TYPES = {
     "english_note": EnglishNoteService,
     "english_note_item": EnglishNoteItemService,
@@ -191,7 +186,6 @@ CONTENT_TABLE_SERVICE_TYPES = {
     "english_textbook_lesson": EnglishTextbookLessonService,
     "english_textbook_sentence": EnglishTextbookSentenceService,
     "phonics_lesson": PhonicsLessonService,
-    "daily_spoken_dialogue_item": DailySpokenDialogueItemService,
 }
 
 RESOURCE_SERVICE_TYPES = {
@@ -205,7 +199,6 @@ RESOURCE_SERVICE_TYPES = {
     "math-cards": MathCardService,
     "textbook": EnglishTextbookLessonService,
     "phonics": PhonicsLessonService,
-    "dialogues": DailySpokenDialogueItemService,
 }
 
 CHILDREN = {

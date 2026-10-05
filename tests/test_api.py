@@ -164,7 +164,6 @@ def test_login_audit_records_ip_time_and_login_outcome(client):
         "math-cards",
         "textbook",
         "phonics",
-        "dialogues",
     ],
 )
 def test_learning_modules_and_details(client, resource):
@@ -195,7 +194,7 @@ def test_filter_pagination_and_auth_permissions(client):
     assert note_items["items"][0]["id"] == 1
     assert client.get("/api/content/note-items?q=Daily%20practice").json()["total"] == 1
     page = client.get("/api/content/sentences?page_size=1&page=2").json()
-    assert page["items"][0]["id"] == 2
+    assert page["items"][0]["id"] == 1
     assert client.get("/api/content/sentences?page=0").status_code == 422
     assert client.get("/api/admin/users").status_code == 403
     assert (

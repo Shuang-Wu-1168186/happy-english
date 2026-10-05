@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Commute lesson 5.2">
+  <rect width="96" height="96" rx="20" fill="#FFF0D9"/>
+  <path d="M20 27c0-8 7-14 16-14h28c9 0 16 6 16 14v16c0 8-7 14-16 14H46L32 70V57h-1c-6 0-11-6-11-14z" fill="#B86630"/><circle cx="42" cy="35" r="4" fill="#FFF0D9"/><circle cx="51" cy="35" r="4" fill="#FFF0D9"/><circle cx="60" cy="35" r="4" fill="#FFF0D9"/>
+  <text x="76" y="84" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="#B86630" text-anchor="end">5.2</text>
+</svg>

@@ -108,10 +108,20 @@ def build_plan(db):
     materials = rows(
         db,
         select(m.learning_material)
+        .join(
+            m.learning_course_material,
+            m.learning_course_material.c.material_id == m.learning_material.c.id,
+        )
+        .join(
+            m.learning_topic_course,
+            m.learning_topic_course.c.course_id
+            == m.learning_course_material.c.course_id,
+        )
         .where(
-            m.learning_material.c.topic_id == topic["id"],
+            m.learning_topic_course.c.topic_id == topic["id"],
             m.learning_material.c.title.like(f"{SERIES_TITLE}%"),
         )
+        .distinct()
         .order_by(m.learning_material.c.id)
         .with_for_update(),
     )

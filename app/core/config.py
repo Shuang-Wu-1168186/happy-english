@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,6 +21,24 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     static_dir: Path = ROOT / "data" / "static"
     uploads_dir: Path = ROOT / "data" / "static" / "uploads"
+    log_dir: Path = ROOT / "logs"
+    log_level: str = "INFO"
+    log_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
+    log_backup_count: int = Field(default=5, ge=1, le=100)
+    log_console: bool = True
+    request_slow_ms: float = Field(default=1000, ge=0)
+
+    @field_validator("log_level")
+    @classmethod
+    def valid_log_level(cls, value):
+        level = value.strip().upper()
+        if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR, or CRITICAL.")
+        return level
+
+    @property
+    def log_file(self) -> Path:
+        return self.log_dir / "happy-english.log"
 
     @model_validator(mode="after")
     def production_security(self):

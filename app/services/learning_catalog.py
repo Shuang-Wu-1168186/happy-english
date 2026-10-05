@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select
 
 from app import models as m
 from app import schemas as s
+from app.core.config import Settings
 from app.dao.learning_catalog import (
     LearningCourseDAO,
     LearningCourseMaterialDAO,
@@ -17,6 +18,7 @@ from app.dao.learning_catalog import (
     LearningTopicCourseDAO,
     LearningTopicDAO,
 )
+from app.services.lesson_content import GenericLessonContentService
 
 
 # This is the cross-client renderer contract.  The same `code` and `version`
@@ -41,9 +43,16 @@ MATERIAL_TEMPLATE_DEFINITIONS = {
     "dialogue": {
         "version": 1,
         "name": "情景对话",
-        "description": "按词汇、对话和练习分区展示的口语对话页。",
-        "content_kind": "dialogue",
-        "source_resources": ("dialogues",),
+        "description": "按通用课时区块展示的情景对话页。",
+        "content_kind": "structured",
+        "source_resources": (),
+    },
+    "commute": {
+        "version": 1,
+        "name": "通勤微课",
+        "description": "为地铁和短时通勤设计的分步听读与情境接话学习页。",
+        "content_kind": "structured",
+        "source_resources": (),
     },
     "textbook": {
         "version": 1,
@@ -78,6 +87,7 @@ MATERIAL_TEMPLATE_DEFINITIONS = {
 DEFAULT_TEMPLATE_BY_MATERIAL_TYPE = {
     "courseware": "put-aside",
     "dialogue": "dialogue",
+    "commute": "commute",
     "textbook": "textbook",
     "card_set": "cards",
     "phonics": "phonics",
@@ -269,6 +279,7 @@ class LearningCatalogService:
         self.courses = LearningCourseService(db)
         self.topic_courses = LearningTopicCourseService(db)
         self.course_materials = LearningCourseMaterialService(db)
+        self.lesson_content = GenericLessonContentService(db)
         self._template_cache = {}
 
     @staticmethod
@@ -369,7 +380,6 @@ class LearningCatalogService:
         definition = MATERIAL_TEMPLATE_DEFINITIONS.get(code)
         if not definition or template["version"] != definition["version"]:
             raise HTTPException(422, "教材使用了未注册的模板编号或版本。")
-        resources = definition["source_resources"]
         for lesson in self.material_lessons.dao.list_where(
             self.material_lessons.dao.table.c.material_id == material["id"],
             order_by=self.material_lessons.dao.ordering(),
@@ -387,6 +397,12 @@ class LearningCatalogService:
             if lesson["lesson_format"] != "courseware":
                 raise HTTPException(422, "Put aside 模板只能包含课件区块课时。")
             return
+        if code in {"dialogue", "commute"}:
+            if lesson["lesson_format"] != "structured":
+                raise HTTPException(422, f"{template['name']}模板只能包含通用结构化课时。")
+            if code == "commute":
+                self._validate_commute_illustration(lesson.get("illustration_url"))
+            return
         if lesson["lesson_format"] == "courseware":
             raise HTTPException(422, "当前教材模板不能包含课件区块课时，请选择 Put aside 模板。")
         allowed_resources = definition["source_resources"]
@@ -396,6 +412,27 @@ class LearningCatalogService:
                 422,
                 f"{template['name']} 模板不支持来源“{source_resource or '自包含内容'}”。",
             )
+
+    @staticmethod
+    def _validate_commute_illustration(illustration_url):
+        """Require a small local visual for every commute micro lesson."""
+        url = str(illustration_url or "").strip()
+        if not url:
+            raise HTTPException(422, "通勤微课的每个课时都需要一张小配图。")
+        if not url.startswith("/static/"):
+            raise HTTPException(422, "通勤微课配图必须使用 /static/ 下的本地图片。")
+
+        relative_path = url.removeprefix("/static/").split("?", 1)[0].lstrip("/")
+        static_dir = Settings().static_dir.resolve()
+        image_path = (static_dir / relative_path).resolve()
+        try:
+            image_path.relative_to(static_dir)
+        except ValueError as error:
+            raise HTTPException(422, "通勤微课配图路径无效。") from error
+        if not image_path.is_file():
+            raise HTTPException(422, "通勤微课配图文件不存在。")
+        if image_path.stat().st_size >= 100 * 1024:
+            raise HTTPException(422, "通勤微课配图必须小于 100KB。")
 
     def list_modules(self):
         return {"items": self.modules.list_public()}
@@ -420,28 +457,16 @@ class LearningCatalogService:
         return [serialise_catalog(row) for row in rows]
 
     def _public_materials(self):
-        rows = (
-            self.db.execute(
-                select(m.learning_material)
-                .join(
-                    m.learning_topic,
-                    m.learning_topic.c.id == m.learning_material.c.topic_id,
-                )
-                .join(
-                    m.learning_module,
-                    m.learning_module.c.id == m.learning_topic.c.module_id,
-                )
-                .where(
-                    m.learning_material.c.is_published == 1,
-                    m.learning_topic.c.is_published == 1,
-                    m.learning_module.c.is_published == 1,
-                )
-                .order_by(m.learning_material.c.sort_order, m.learning_material.c.id)
-            )
-            .mappings()
-            .all()
-        )
-        return [self._material_view(row) for row in rows]
+        """Return materials that are reachable from at least one public course."""
+        materials = []
+        seen_ids = set()
+        for course in self._public_courses():
+            for material in course["materials"]:
+                if material["id"] in seen_ids:
+                    continue
+                seen_ids.add(material["id"])
+                materials.append(material)
+        return materials
 
     def _public_courses(self):
         rows = (
@@ -587,6 +612,18 @@ class LearningCatalogService:
                 materials.append(material)
         return materials
 
+    def _materials_for_topic(self, topic_id):
+        """Return every material reachable through a topic's course sequence."""
+        materials = []
+        seen_ids = set()
+        for course in self._courses_for_topic(topic_id):
+            for material in self._course_material_summaries(course):
+                if material["id"] in seen_ids:
+                    continue
+                seen_ids.add(material["id"])
+                materials.append(material)
+        return materials
+
     def _course_materials_are_public(self, course):
         """A public course cannot expose a partially unpublished material set."""
         return all(row["is_published"] == 1 for row in self._course_material_rows(course))
@@ -628,6 +665,14 @@ class LearningCatalogService:
                 self.courses.dao.table.c.material_id == material_id,
             ),
             order_by=self.courses.dao.ordering(),
+        )
+
+    def _material_is_publicly_exposed(self, material_id):
+        return any(
+            course["is_published"] == 1
+            and self._course_materials_are_public(course)
+            and self._course_topic_rows(course["id"], published_only=True)
+            for course in self._courses_for_material(material_id)
         )
 
     def _replace_course_materials(self, course_id, material_ids, actor):
@@ -719,10 +764,29 @@ class LearningCatalogService:
             return result
         if not include_content:
             result.pop("content", None)
+            sections = self.lesson_content.list_for_lesson(
+                lesson["id"], published_only=True, include_items=False
+            )
+            if sections:
+                result["sections"] = sections
             result["render_payload"] = {
                 "template": template,
                 "content_kind": template["content_kind"],
                 "content": None,
+            }
+            return result
+        sections = (
+            self.lesson_content.list_for_lesson(lesson["id"], published_only=True)
+            if lesson["lesson_format"] == "structured"
+            else []
+        )
+        if sections:
+            result.pop("content", None)
+            result["sections"] = sections
+            result["render_payload"] = {
+                "template": template,
+                "content_kind": "structured",
+                "content": {"sections": sections},
             }
             return result
         if lesson["lesson_format"] == "courseware":
@@ -786,44 +850,6 @@ class LearningCatalogService:
                 "items": [serialise_content(item) for item in items],
             }
 
-        if source_resource == "dialogues":
-            root = (
-                self.db.execute(
-                    select(m.daily_spoken_dialogue_item).where(
-                        m.daily_spoken_dialogue_item.c.id == source_reference_id,
-                        m.daily_spoken_dialogue_item.c.is_published == 1,
-                    )
-                )
-                .mappings()
-                .first()
-            )
-            if not root:
-                raise HTTPException(404, "The dialogue used by this lesson is unavailable.")
-            items = (
-                self.db.execute(
-                    select(m.daily_spoken_dialogue_item)
-                    .where(
-                        m.daily_spoken_dialogue_item.c.lesson_code == root["lesson_code"],
-                        m.daily_spoken_dialogue_item.c.is_published == 1,
-                    )
-                    .order_by(
-                        m.daily_spoken_dialogue_item.c.section_order,
-                        m.daily_spoken_dialogue_item.c.item_order,
-                        m.daily_spoken_dialogue_item.c.id,
-                    )
-                )
-                .mappings()
-                .all()
-            )
-            from app.services.content import serialise_content
-
-            return {
-                "lesson_code": root["lesson_code"],
-                "chapter_title": root["chapter_title"],
-                "lesson_title": root["lesson_title"],
-                "items": [serialise_content(item) for item in items],
-            }
-
         from app.services.content import ContentService
 
         return ContentService(self.db).get_content(source_resource, source_reference_id)
@@ -848,8 +874,8 @@ class LearningCatalogService:
 
     def get_material(self, material_id, include_lesson_content=False, user=None):
         material = self.materials.require_public(material_id)
-        topic = self.topics.require_public(material["topic_id"])
-        self.modules.require_public(topic["module_id"])
+        if not self._material_is_publicly_exposed(material_id):
+            raise HTTPException(404, "Learning catalogue record not found.")
         result = self._material_view(material)
         template = result["template"]
         access = self._material_access(user, material_id)
@@ -870,8 +896,8 @@ class LearningCatalogService:
 
     def get_material_lesson(self, material_id, lesson_id, user=None):
         material = self.materials.require_public(material_id)
-        topic = self.topics.require_public(material["topic_id"])
-        self.modules.require_public(topic["module_id"])
+        if not self._material_is_publicly_exposed(material_id):
+            raise HTTPException(404, "Learning catalogue record not found.")
         lesson = self.material_lessons.require_any(lesson_id)
         if lesson["material_id"] != material_id or lesson["is_published"] != 1:
             raise HTTPException(404, "Learning material lesson not found.")
@@ -964,9 +990,18 @@ class LearningCatalogService:
         return {**result, "items": [self._material_view(row) for row in result["items"]]}
 
     def _topic_statistics(self, topic_id):
-        material_condition = m.learning_material.c.topic_id == topic_id
+        material_ids = (
+            select(m.learning_course_material.c.material_id)
+            .join(
+                m.learning_topic_course,
+                m.learning_topic_course.c.course_id
+                == m.learning_course_material.c.course_id,
+            )
+            .where(m.learning_topic_course.c.topic_id == topic_id)
+        )
+        material_condition = m.learning_material.c.id.in_(material_ids)
         course_condition = m.learning_topic_course.c.topic_id == topic_id
-        lesson_condition = m.learning_material.c.topic_id == topic_id
+        lesson_condition = m.learning_material_lesson.c.material_id.in_(material_ids)
         return {
             "material_count": self.db.scalar(
                 select(func.count()).select_from(m.learning_material).where(material_condition)
@@ -978,12 +1013,10 @@ class LearningCatalogService:
             ),
             "lesson_count": self.db.scalar(
                 select(func.count())
-                .select_from(m.learning_material_lesson.join(m.learning_material))
                 .where(lesson_condition)
             ),
             "published_lesson_count": self.db.scalar(
                 select(func.count())
-                .select_from(m.learning_material_lesson.join(m.learning_material))
                 .where(lesson_condition, m.learning_material_lesson.c.is_published == 1)
             ),
             "course_count": self.db.scalar(
@@ -1021,13 +1054,7 @@ class LearningCatalogService:
         topic = self.topics.require_any(topic_id)
         result = serialise_catalog(topic)
         result["statistics"] = self._topic_statistics(topic_id)
-        materials = [
-            self._material_view(row)
-            for row in self.materials.dao.list_where(
-                self.materials.dao.table.c.topic_id == topic_id,
-                order_by=self.materials.dao.ordering(),
-            )
-        ]
+        materials = self._materials_for_topic(topic_id)
         courses = self._courses_for_topic(topic_id)
         result["materials"] = materials
         result["courses"] = self._course_order_display_entries(courses)
@@ -1251,7 +1278,9 @@ class LearningCatalogService:
                 "difficulty_code",
             ),
         )
-        self.topics.require_any(values["topic_id"])
+        # `topic_id` is accepted only for callers that have not updated yet.
+        # Storing it would recreate a direct material → topic relationship.
+        values.pop("topic_id", None)
         template_was_sent = "template_id" in payload.model_fields_set
         if not template_was_sent and existing is not None:
             values["template_id"] = existing["template_id"]
@@ -1299,6 +1328,13 @@ class LearningCatalogService:
                 self.courses.dao.update(course["id"], updates)
 
     def _validate_material_lesson_source(self, values):
+        if values["lesson_format"] == "structured":
+            if values["source_resource"] or values["source_reference_id"] or values["content_json"]:
+                raise HTTPException(
+                    422,
+                    "A structured lesson cannot also define legacy source or self-contained content.",
+                )
+            return
         if values["lesson_format"] == "courseware":
             if values["source_resource"] or values["source_reference_id"] or values["content_json"]:
                 raise HTTPException(
@@ -1345,8 +1381,9 @@ class LearningCatalogService:
         existing = self.material_lessons.require_any(lesson_id) if lesson_id is not None else None
         values = self._none_when_blank(
             payload.model_dump(),
-            ("title_en", "summary", "source_resource"),
+            ("title_en", "summary", "illustration_url", "source_resource"),
         )
+        sections = values.pop("sections")
         content = values.pop("content")
         values["content_json"] = self._encode_json(content, "content")
         values["material_id"] = material["id"]
@@ -1354,8 +1391,11 @@ class LearningCatalogService:
             values["is_published"] = (
                 existing["is_published"]
                 if existing is not None
-                else 0 if values["lesson_format"] == "courseware" else 1
+                else 0 if values["lesson_format"] in {"courseware", "structured"} else 1
             )
+        if values["lesson_format"] == "structured" or sections is not None:
+            values["lesson_schema_version"] = 2
+            values["content_status"] = "draft"
         self._validate_material_lesson_source(values)
         if lesson_id is not None:
             if existing["material_id"] != material_id:
@@ -1366,7 +1406,16 @@ class LearningCatalogService:
         )
         row = self.material_lessons.save(lesson_id, values, actor)
         self.db.commit()
-        return serialise_catalog(row)
+        result = serialise_catalog(row)
+        if sections is not None:
+            section_payload = s.LearningLessonSectionsInput(sections=sections)
+            result = {
+                **result,
+                "sections": self.lesson_content.replace(
+                    row["id"], section_payload, actor, publish=False
+                )["sections"],
+            }
+        return result
 
     def save_course(self, payload: s.LearningCourseInput, actor, course_id=None):
         values = self._none_when_blank(
@@ -1441,8 +1490,6 @@ class LearningCatalogService:
             self.topic_courses.dao.table.c.topic_id == topic_id
         ):
             raise HTTPException(409, "Delete this topic's courses before deleting the topic.")
-        if self.materials.dao.count(self.materials.dao.table.c.topic_id == topic_id):
-            raise HTTPException(409, "Delete this topic's materials before deleting the topic.")
         self.topics.delete(topic_id)
         self.db.commit()
 

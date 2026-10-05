@@ -35,6 +35,10 @@ class ContentTableDAO(BaseTableDAO):
             if name in self.table.c
         ] + [self.table.c.id]
 
+    def list_ordering(self):
+        """Content library search results are management lists, not lesson flow."""
+        return self.newest_first_ordering()
+
     def text_matches(self, query):
         return or_(
             *(
@@ -93,7 +97,7 @@ class ContentTableDAO(BaseTableDAO):
             self.db.execute(
                 select(self.table)
                 .where(*conditions)
-                .order_by(*self.ordering())
+                .order_by(*self.list_ordering())
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             )
@@ -237,11 +241,6 @@ class PhonicsLessonDAO(ContentTableDAO):
     table = m.phonics_lesson
 
 
-class DailySpokenDialogueItemDAO(ContentTableDAO):
-    resource = "dialogues"
-    table = m.daily_spoken_dialogue_item
-
-
 CONTENT_TABLE_DAO_TYPES = {
     m.english_note.name: EnglishNoteDAO,
     m.english_note_item.name: EnglishNoteItemDAO,
@@ -259,7 +258,6 @@ CONTENT_TABLE_DAO_TYPES = {
     m.english_textbook_lesson.name: EnglishTextbookLessonDAO,
     m.english_textbook_sentence.name: EnglishTextbookSentenceDAO,
     m.phonics_lesson.name: PhonicsLessonDAO,
-    m.daily_spoken_dialogue_item.name: DailySpokenDialogueItemDAO,
 }
 
 RESOURCE_DAO_TYPES = {

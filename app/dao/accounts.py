@@ -67,7 +67,7 @@ class UserDAO(BaseTableDAO):
             self.db.execute(
                 select(*self.public_columns)
                 .where(*filters)
-                .order_by(self.table.c.id.desc())
+                .order_by(*self.newest_first_ordering())
                 .limit(page_size)
                 .offset((page - 1) * page_size)
             )

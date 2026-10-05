@@ -34,6 +34,12 @@ class BaseTableDAO:
     def delete_where(self, *conditions):
         self.db.execute(self.table.delete().where(*conditions))
 
+    def newest_first_ordering(self):
+        """Use a stable newest-first order for management collection lists."""
+        if "created_at" in self.table.c:
+            return [self.table.c.created_at.desc(), self.table.c.id.desc()]
+        return [self.table.c.id.desc()]
+
     def list_where(self, *conditions, order_by=()):
         return self.db.execute(select(self.table).where(*conditions).order_by(*order_by)).mappings().all()
 

@@ -114,6 +114,29 @@ Kokoro 模型与 WAV 缓存在 `~/.cache/happyenglish/kokoro`，可通过 `KOKOR
 
 默认 Whisper 使用 `base.en` / CPU / int8，可通过 `WHISPER_MODEL`、`WHISPER_DEVICE`、`WHISPER_COMPUTE_TYPE` 设置。新环境首次下载模型需要网络和额外磁盘空间。
 
+## 日志与耗时监控
+
+后端启动后会自动创建 `logs/happy-english.log`。文件使用滚动写入，默认单个文件最大 10 MB，保留 5 个历史文件；同时仍输出到控制台。日志不会记录朗读文本、参考文本、转写内容或用户录音，只会记录长度、语言、模型配置、状态和耗时。
+
+```sh
+tail -f logs/happy-english.log
+```
+
+每个 API 请求都会记录 `request_id`、方法、路径、状态码和 `duration_ms`，并在响应头返回 `X-Request-ID`，方便关联前端报错和服务端日志。请求超过 `REQUEST_SLOW_MS`（默认 1000 ms）会以 warning 记录。
+
+文本转语音会记录缓存命中、等待生成锁、Kokoro 管线初始化、语音合成开始和结束；跟读评分会记录上传读取、Whisper 模型初始化、转写开始和结束、评分与总耗时。若需查看中英混读时的音素转换耗时，将 `LOG_LEVEL=DEBUG` 后重启服务。
+
+可在 `.env` 中配置：
+
+```ini
+LOG_DIR=logs
+LOG_LEVEL=INFO
+LOG_MAX_BYTES=10485760
+LOG_BACKUP_COUNT=5
+LOG_CONSOLE=true
+REQUEST_SLOW_MS=1000
+```
+
 ## 测试
 
 ```sh

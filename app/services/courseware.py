@@ -625,7 +625,7 @@ class NoteCoursewareService:
 
     def list_notes(self):
         rows = self.db.execute(
-            select(m.english_note).order_by(m.english_note.c.updated_at.desc(), m.english_note.c.id.desc())
+            select(m.english_note).order_by(m.english_note.c.created_at.desc(), m.english_note.c.id.desc())
         ).mappings().all()
         return {"items": [dict(row) for row in rows]}
 
@@ -3470,7 +3470,6 @@ class NoteCoursewareService:
             material_code = "idiomatic-everyday-english"
             material_id = self.db.execute(
                 select(m.learning_material.c.id).where(
-                    m.learning_material.c.topic_id == topic_id,
                     m.learning_material.c.material_code == material_code,
                 )
             ).scalar_one_or_none()
@@ -3483,7 +3482,7 @@ class NoteCoursewareService:
                     )
                 ).scalar_one_or_none()
                 material_id = self.db.execute(m.learning_material.insert().values(
-                    topic_id=topic_id, template_id=template_id,
+                    template_id=template_id,
                     material_code=material_code, title="地道短语",
                     title_en="Idiomatic Phrases", summary="把高频短语放进画面、场景和自己的表达里。",
                     material_type="textbook", estimated_minutes=8, sort_order=10,
@@ -3494,8 +3493,6 @@ class NoteCoursewareService:
         ).mappings().first()
         if not material:
             raise HTTPException(404, "Learning material not found.")
-        if material["topic_id"] != topic_id:
-            raise HTTPException(422, "The material must belong to the selected topic.")
         if material.get("template_id"):
             template = self.db.execute(
                 select(m.learning_template).where(

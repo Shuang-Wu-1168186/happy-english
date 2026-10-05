@@ -1,3 +1,10 @@
+from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
+
+from app.services import learning_catalog
+from app.services.learning_catalog import LearningCatalogService
 from tests.conftest import sign_in
 
 
@@ -78,7 +85,7 @@ def test_learning_catalog_admin_builds_a_topic_and_course_hierarchy(client):
             "course_code": "ordering-food-01",
             "title": "点餐",
             "course_type": "dialogue",
-            "content_resource": "dialogues",
+            "content_resource": "sentences",
             "estimated_minutes": 8,
             "content": {
                 "blocks": [
@@ -108,6 +115,33 @@ def test_learning_catalog_admin_builds_a_topic_and_course_hierarchy(client):
     course_detail = client.get(f"/api/learning/courses/{course_id}")
     assert course_detail.status_code == 200
     assert course_detail.json()["content"]["blocks"][0]["english"] == "I'd like the soup, please."
+
+
+def test_admin_catalog_lists_newest_records_first(client):
+    headers = sign_in(client)
+    created_topics = []
+    for suffix in ("first", "second"):
+        response = client.post(
+            "/api/admin/learning/topics",
+            headers=headers,
+            json={
+                "module_id": 2,
+                "topic_code": f"newest-list-topic-{suffix}",
+                "title": f"最新列表专题 {suffix}",
+            },
+        )
+        assert response.status_code == 201
+        created_topics.append(response.json())
+
+    topics = client.get(
+        "/api/admin/learning-topics?q=%E6%9C%80%E6%96%B0%E5%88%97%E8%A1%A8%E4%B8%93%E9%A2%98",
+        headers=headers,
+    )
+    assert topics.status_code == 200
+    assert [item["id"] for item in topics.json()["items"]] == [
+        created_topics[1]["id"],
+        created_topics[0]["id"],
+    ]
 
 
 def test_top_level_course_catalog_omits_hidden_topics(client):
@@ -751,13 +785,20 @@ def test_material_template_is_a_versioned_cross_client_renderer_contract(client)
         json={
             "topic_id": topic.json()["id"],
             "template_id": created_template.json()["id"],
-            "material_code": "template-contract-material",
+            "material_code": "Template-Contract-Material",
             "title": "模板契约教材",
             "material_type": "note_collection",
         },
     )
     assert material.status_code == 201
     assert material.json()["template"]["renderer"] == "standard.v1"
+    assert material.json()["material_code"] == "template-contract-material"
+    assert "topic_id" not in material.json()
+    before_course_link = client.get(
+        f"/api/admin/learning-topics/{topic.json()['id']}", headers=headers
+    )
+    assert before_course_link.status_code == 200
+    assert before_course_link.json()["materials"] == []
 
     lesson = client.post(
         f"/api/admin/learning-materials/{material.json()['id']}/lessons",
@@ -777,6 +818,18 @@ def test_material_template_is_a_versioned_cross_client_renderer_contract(client)
         },
     )
     assert lesson.status_code == 201
+
+    course = client.post(
+        "/api/admin/learning/courses",
+        headers=headers,
+        json={
+            "topic_id": topic.json()["id"],
+            "material_id": material.json()["id"],
+            "course_code": "template-contract-course",
+            "title": "模板契约课程",
+        },
+    )
+    assert course.status_code == 201
 
     sign_in(client, "learner_test")
     detail = client.get(
@@ -798,3 +851,178 @@ def test_material_template_is_a_versioned_cross_client_renderer_contract(client)
             ]
         },
     }
+
+
+def test_commute_template_uses_structured_micro_lessons(client):
+    headers = sign_in(client)
+    template = client.post(
+        "/api/admin/learning-templates",
+        headers=headers,
+        json={
+            "template_code": "commute",
+            "template_version": 1,
+            "name": "通勤微课",
+            "description": "适合地铁和短时通勤的分步学习页。",
+            "content_kind": "structured",
+            "supported_clients": ["web", "mini"],
+        },
+    )
+    assert template.status_code == 201, template.text
+    assert template.json()["renderer"] == "commute.v1"
+    assert template.json()["content_kind"] == "structured"
+
+    material = client.post(
+        "/api/admin/learning-materials",
+        headers=headers,
+        json={
+            "template_id": template.json()["id"],
+            "material_code": "commute-template-test",
+            "title": "通勤模板测试教材",
+            "material_type": "commute",
+        },
+    )
+    assert material.status_code == 201, material.text
+
+    invalid_lesson = client.post(
+        f"/api/admin/learning-materials/{material.json()['id']}/lessons",
+        headers=headers,
+        json={
+            "lesson_code": "commute-source-lesson",
+            "title": "不应接受的来源课时",
+            "lesson_format": "source",
+            "content": {"items": [{"english": "Hello."}]},
+        },
+    )
+    assert invalid_lesson.status_code == 422
+    assert "通勤微课模板只能包含通用结构化课时" in invalid_lesson.json()["detail"]
+
+    missing_illustration = client.post(
+        f"/api/admin/learning-materials/{material.json()['id']}/lessons",
+        headers=headers,
+        json={
+            "lesson_code": "commute-structured-without-image",
+            "title": "缺少配图的结构化课时",
+            "lesson_format": "structured",
+        },
+    )
+    assert missing_illustration.status_code == 422
+    assert "每个课时都需要一张小配图" in missing_illustration.json()["detail"]
+
+
+def test_commute_illustration_must_be_local_and_under_100kb(tmp_path, monkeypatch):
+    image = tmp_path / "quick-replies.svg"
+    image.write_text("<svg />", encoding="utf-8")
+    monkeypatch.setattr(
+        learning_catalog,
+        "Settings",
+        lambda: SimpleNamespace(static_dir=tmp_path),
+    )
+
+    LearningCatalogService._validate_commute_illustration("/static/quick-replies.svg")
+
+    image.write_bytes(b"x" * (100 * 1024))
+    with pytest.raises(HTTPException, match="小于 100KB"):
+        LearningCatalogService._validate_commute_illustration(
+            "/static/quick-replies.svg"
+        )
+    with pytest.raises(HTTPException, match="本地图片"):
+        LearningCatalogService._validate_commute_illustration(
+            "https://example.com/quick-replies.svg"
+        )
+
+
+def test_structured_lesson_has_seven_sections_and_publish_count_rules(client):
+    headers = sign_in(client)
+    topic = client.post(
+        "/api/admin/learning/topics",
+        headers=headers,
+        json={"module_id": 2, "topic_code": "structured-lesson-topic", "title": "通用课时测试"},
+    )
+    assert topic.status_code == 201
+    material = client.post(
+        "/api/admin/learning-materials",
+        headers=headers,
+        json={
+            "topic_id": topic.json()["id"],
+            "material_code": "structured-lesson-material",
+            "title": "通用课时教材",
+            "material_type": "note_collection",
+        },
+    )
+    assert material.status_code == 201
+
+    counts = {
+        "core_vocabulary": 4,
+        "situational_dialogues": 6,
+        "key_sentence_patterns": 3,
+        "speaking_practice": 1,
+        "mini_exercises": 1,
+        "useful_tips": 1,
+        "extended_reading": 1,
+    }
+    titles = {
+        "core_vocabulary": ("核心词汇", "Core Vocabulary"),
+        "situational_dialogues": ("情景对话", "Situational Dialogues"),
+        "key_sentence_patterns": ("核心句型", "Key Sentence Patterns"),
+        "speaking_practice": ("口语练习", "Speaking Practice"),
+        "mini_exercises": ("小练习", "Mini Exercises"),
+        "useful_tips": ("实用表达提示", "Useful Tips"),
+        "extended_reading": ("扩展阅读", "Extended Reading"),
+    }
+    sections = []
+    for order, (code, count) in enumerate(counts.items(), start=1):
+        title, title_en = titles[code]
+        sections.append(
+            {
+                "section_code": code,
+                "title": title,
+                "title_en": title_en,
+                "sort_order": order * 10,
+                "items": [
+                    {
+                        "item_code": f"{code.replace('_', '-')}-{item_order}",
+                        "item_order": item_order,
+                        "payload": {"text": f"{code} item {item_order}"},
+                    }
+                    for item_order in range(1, count + 1)
+                ],
+            }
+        )
+
+    lesson = client.post(
+        f"/api/admin/learning-materials/{material.json()['id']}/lessons",
+        headers=headers,
+        json={
+            "lesson_code": "structured-lesson-01",
+            "title": "通用课时一",
+            "lesson_format": "structured",
+            "sections": sections,
+        },
+    )
+    assert lesson.status_code == 201, lesson.text
+    lesson_id = lesson.json()["id"]
+    assert len(lesson.json()["sections"]) == 7
+    assert client.post(
+        f"/api/admin/learning-material-lessons/{lesson_id}/publish", headers=headers
+    ).status_code == 200
+
+    course = client.post(
+        "/api/admin/learning/courses",
+        headers=headers,
+        json={
+            "topic_id": topic.json()["id"],
+            "material_id": material.json()["id"],
+            "course_code": "structured-lesson-course",
+            "title": "通用课时课程",
+        },
+    )
+    assert course.status_code == 201
+
+    sign_in(client, "learner_test")
+    detail = client.get(
+        f"/api/learning/materials/{material.json()['id']}/lessons/{lesson_id}"
+    )
+    assert detail.status_code == 200
+    assert [section["section_code"] for section in detail.json()["sections"]] == list(counts)
+    assert detail.json()["render_payload"]["content_kind"] == "structured"
+    assert len(detail.json()["render_payload"]["content"]["sections"][1]["items"]) == 6

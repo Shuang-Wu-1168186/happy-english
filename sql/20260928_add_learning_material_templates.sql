@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS `learning_template` (
     `template_version` INT NOT NULL DEFAULT 1 COMMENT '模板渲染版本',
     `name` VARCHAR(120) NOT NULL COMMENT '后台展示名称',
     `description` TEXT DEFAULT NULL COMMENT '模板用途说明',
-    `content_kind` VARCHAR(50) NOT NULL COMMENT 'courseware、dialogue 或 source',
+    `content_kind` VARCHAR(50) NOT NULL COMMENT 'courseware、structured 或 source',
     `supported_clients_json` TEXT NOT NULL COMMENT '已注册客户端，例如 ["web","mini"]',
     `config_json` TEXT DEFAULT NULL COMMENT '模板配置 JSON',
     `status` VARCHAR(20) NOT NULL DEFAULT 'active' COMMENT 'active 或 inactive',
@@ -36,7 +36,7 @@ SET @has_material_template_id = (
 );
 SET @add_material_template_id = IF(
     @has_material_template_id = 0,
-    'ALTER TABLE `learning_material` ADD COLUMN `template_id` BIGINT UNSIGNED DEFAULT NULL COMMENT ''教材渲染模板ID'' AFTER `topic_id`, ADD KEY `idx_learning_material_template` (`template_id`)',
+    'ALTER TABLE `learning_material` ADD COLUMN `template_id` BIGINT UNSIGNED DEFAULT NULL COMMENT ''教材渲染模板ID'' AFTER `id`, ADD KEY `idx_learning_material_template` (`template_id`)',
     'SELECT 1'
 );
 PREPARE add_material_template_id FROM @add_material_template_id;
@@ -67,7 +67,8 @@ INSERT INTO `learning_template`
 VALUES
     ('standard', 1, '通用课时', '适合句子、笔记和自包含内容的通用学习页。', 'source', '["web","mini"]', '{}', 'active', 10),
     ('put-aside', 1, 'Put aside 课件', '按短语、用法、情景和输出区块组织的课件。', 'courseware', '["web","mini"]', '{}', 'active', 20),
-    ('dialogue', 1, '情景对话', '按词汇、对话和练习分区展示的口语对话页。', 'dialogue', '["web","mini"]', '{}', 'active', 30),
+    ('dialogue', 1, '情景对话', '按通用课时区块展示的情景对话页。', 'structured', '["web","mini"]', '{}', 'active', 30),
+    ('commute', 1, '通勤微课', '为地铁和短时通勤设计的分步听读与情境接话学习页。', 'structured', '["web","mini"]', '{}', 'active', 35),
     ('textbook', 1, '课本课文', '按单元、课文和中英对照展示的教材页。', 'source', '["web","mini"]', '{}', 'active', 40),
     ('cards', 1, '单词卡片', '适合儿童卡片、数学卡片和词汇卡片的学习页。', 'source', '["web","mini"]', '{}', 'active', 50),
     ('phonics', 1, '自然拼读', '按音素、示例和小测展示的拼读学习页。', 'source', '["web","mini"]', '{}', 'active', 60),

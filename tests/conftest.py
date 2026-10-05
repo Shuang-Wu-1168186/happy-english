@@ -37,6 +37,8 @@ def client(tmp_path):
         secret_key="test-secret-key-not-for-production-123",
         static_dir=tmp_path / "static",
         uploads_dir=tmp_path / "static" / "uploads",
+        log_dir=tmp_path / "logs",
+        log_console=False,
         audio_enabled=False,
         wechat_miniprogram_app_id="wx-test-app",
         wechat_miniprogram_app_secret="test-mini-program-secret",
