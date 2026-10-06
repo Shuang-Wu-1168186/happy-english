@@ -270,7 +270,14 @@ def test_new_note_items_append_to_the_note(client):
         "raw_text": "first new card",
         "english_text": "first new card",
         "chinese_text": "第一张新卡片",
+        "example_image_url": "/static/uploads/test-note.webp",
     }
+    missing_image = client.post(
+        "/api/content/note-items",
+        headers=headers,
+        json={key: value for key, value in payload.items() if key != "example_image_url"},
+    )
+    assert missing_image.status_code == 422
     first = client.post("/api/content/note-items", headers=headers, json=payload)
     second = client.post(
         "/api/content/note-items",
@@ -309,6 +316,7 @@ def test_note_item_language_register_can_be_filtered_and_manually_corrected(clie
         "raw_text": "Would you mind joining the meeting?",
         "english_text": "Would you mind joining the meeting?",
         "chinese_text": "你介意参加会议吗？",
+        "example_image_url": "/static/uploads/note-language.webp",
         "language_register": "formal_spoken",
         "usage_scenarios": ["meeting_presentation", "workplace"],
         "register_reason": "适合正式会议中的礼貌邀请。",

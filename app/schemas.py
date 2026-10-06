@@ -104,7 +104,7 @@ class NoteItemInput(Input):
     chinese_text: str = Field(min_length=1, max_length=50000)
     explanation: str = Field(default="", max_length=50000)
     examples: str = Field(default="", max_length=50000)
-    example_image_url: str = Field(default="", max_length=500)
+    example_image_url: str = Field(default="", max_length=500, validate_default=True)
     example_image_alt: str = Field(default="", max_length=255)
     keywords: str = Field(default="", max_length=500)
     language_register: Literal[
@@ -141,9 +141,12 @@ class NoteItemInput(Input):
     @field_validator("example_image_url")
     @classmethod
     def valid_image_url(cls, value):
-        if value and not value.startswith(("https://", "http://", "/static/")):
+        url = value.strip()
+        if not url:
+            raise ValueError("请上传笔记图片或填写图片地址。")
+        if not url.startswith(("https://", "http://", "/static/")):
             raise ValueError("Use an HTTP(S) image URL or an uploaded /static/ image.")
-        return value
+        return url
 
 
 class SentenceInput(Input):

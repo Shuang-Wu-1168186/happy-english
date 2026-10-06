@@ -723,6 +723,7 @@ def test_note_courseware_generates_one_lesson_for_each_explicit_headword(client)
             ),
             "explanation": "常用于头发、胡子、植物、灌木。",
             "examples": "He has a scraggly beard.\nScraggly bushes grew along the fence.",
+            "example_image_url": "/static/uploads/scraggly.webp",
         },
     )
     assert note_item.status_code == 201
