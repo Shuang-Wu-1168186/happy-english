@@ -265,6 +265,15 @@ def test_membership_course_previews_two_lessons_and_locks_the_rest(client):
         False,
         True,
     ]
+    material_preview_with_content = client.get(
+        f"/api/learning/materials/{material_id}?include_lesson_content=true",
+        headers=learner_headers,
+    )
+    assert material_preview_with_content.status_code == 200
+    material_preview_with_content_data = material_preview_with_content.json()
+    assert "content" in material_preview_with_content_data["lessons"][0]
+    assert "content" in material_preview_with_content_data["lessons"][1]
+    assert "content" not in material_preview_with_content_data["lessons"][2]
     locked_material_lesson = client.get(
         f"/api/learning/materials/{material_id}/lessons/{material_preview_data['lessons'][2]['id']}",
         headers=learner_headers,

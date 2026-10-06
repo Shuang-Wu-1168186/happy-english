@@ -4,11 +4,13 @@
 # Required environment variables:
 #   MYSQL_HOST, MYSQL_USER, MYSQL_DATABASE, MYSQL_PWD
 # Optional:
-#   MYSQL_PORT=3306, MYSQL_BIN=mysql, MYSQL_SSL_CA=/path/to/ca.pem
+#   MYSQL_PORT=3306, MYSQL_BIN=mysql, MYSQL_SSL_CA=/path/to/ca.pem,
+#   MYSQL_SSL_MODE=..., MYSQL_COMPRESS=1
 #
-# Default mode upgrades schema and imports the current learning catalogue.  It
-# keeps the two legacy source tables for rollback.  Run this script again with
-# --finalize only after the deployed API and learner pages are verified.
+# This script upgrades schema only.  Content is published as one small package
+# per textbook by scripts/publish_aliyun_textbook.py.  It keeps the two legacy
+# source tables for rollback.  Run this script again with --finalize only after
+# the deployed API and learner pages are verified.
 
 set -euo pipefail
 export LC_ALL=C
@@ -21,12 +23,12 @@ mysql_database="${MYSQL_DATABASE:?Set MYSQL_DATABASE}"
 : "${MYSQL_PWD:?Set MYSQL_PWD}"
 mysql_port="${MYSQL_PORT:-3306}"
 finalize=false
-force_content=false
+postflight=true
 
 for argument in "$@"; do
   case "$argument" in
     --finalize) finalize=true ;;
-    --force-content) force_content=true ;;
+    --skip-postflight) postflight=false ;;
     *)
       echo "Unknown option: $argument" >&2
       exit 2
@@ -43,6 +45,12 @@ mysql_args=(
 )
 if [[ -n "${MYSQL_SSL_CA:-}" ]]; then
   mysql_args+=(--ssl-ca="$MYSQL_SSL_CA")
+fi
+if [[ -n "${MYSQL_SSL_MODE:-}" ]]; then
+  mysql_args+=(--ssl-mode="$MYSQL_SSL_MODE")
+fi
+if [[ "${MYSQL_COMPRESS:-}" == "1" || "${MYSQL_COMPRESS:-}" == "true" || "${MYSQL_COMPRESS:-}" == "yes" ]]; then
+  mysql_args+=(--compress)
 fi
 
 mysql_exec() {
@@ -267,15 +275,20 @@ else
   run_once "20261004-lesson-illustration" "sql/20261004_add_learning_lesson_illustration.sql"
 fi
 
-run_once "20261005-cleanup-empty-duplicate-topics" "sql/deploy/20261005_cleanup_empty_duplicate_topics.sql"
-
-if [[ "$force_content" == true ]]; then
-  echo "[run ] 20261005-learning-catalogue-data (forced)"
-  mysql_exec < "$release_root/sql/deploy/20261005_learning_catalog_data.sql"
-  mark_applied "20261005-learning-catalogue-data" "$release_root/sql/deploy/20261005_learning_catalog_data.sql"
+if has_table "english_note_item_frequency" && has_all_columns \
+    "english_note_item_frequency" "user_id" \
+    "english_note_item_frequency" "note_item_id" \
+    "english_note_item_frequency" "frequency_count" \
+    "english_note_item_frequency" "last_recorded_at"; then
+  mark_existing "20261006-note-item-frequency"
+elif has_table "english_note_item_frequency"; then
+  echo "english_note_item_frequency exists but is missing required columns; review the target schema." >&2
+  exit 1
 else
-  run_once "20261005-learning-catalogue-data" "sql/deploy/20261005_learning_catalog_data.sql"
+  run_once "20261006-note-item-frequency" "sql/20261006_add_note_item_frequency.sql"
 fi
+
+run_once "20261005-cleanup-empty-duplicate-topics" "sql/deploy/20261005_cleanup_empty_duplicate_topics.sql"
 
 if [[ "$finalize" == true ]]; then
   if has_table "daily_spoken_dialogue_item"; then
@@ -292,5 +305,7 @@ else
   echo "[info] Legacy dialogue/source tables are retained. Re-run with --finalize after API validation."
 fi
 
-mysql_exec < "$release_root/sql/deploy/20261005_aliyun_postflight.sql"
+if [[ "$postflight" == true ]]; then
+  mysql_exec < "$release_root/sql/deploy/20261005_aliyun_postflight.sql"
+fi
 echo "Database release completed."

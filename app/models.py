@@ -214,6 +214,29 @@ study_progress = Table(
     UniqueConstraint("user_id", "content_type", "parent_id"),
 )
 
+english_note_item_frequency = Table(
+    "english_note_item_frequency",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "note_item_id",
+        Integer,
+        ForeignKey("english_note_item.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("frequency_count", Integer, nullable=False, server_default=text("'0'")),
+    Column("last_recorded_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("user_id", "note_item_id", name="uk_english_note_item_frequency_user_item"),
+)
+Index(
+    "idx_english_note_item_frequency_user_count",
+    english_note_item_frequency.c.user_id,
+    english_note_item_frequency.c.frequency_count,
+)
+
 user = Table(
     "user",
     metadata,

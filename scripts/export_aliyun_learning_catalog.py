@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export the current learning catalogue as a portable MySQL content sync.
+"""Export a scoped learning catalogue as a portable MySQL content sync.
 
 The generated SQL is deliberately keyed by stable business codes instead of
 local numeric IDs.  It can therefore be applied to an existing Aliyun MySQL
@@ -9,9 +9,14 @@ It exports platform catalogue/configuration data only.  It does not export
 users, passwords, sessions, progress, login audits, or user memberships.
 
 Usage:
-    PYTHONPATH=. .venv/bin/python scripts/export_aliyun_learning_catalog.py
     PYTHONPATH=. .venv/bin/python scripts/export_aliyun_learning_catalog.py \
-        --output sql/deploy/20261005_learning_catalog_data.sql
+        --material-code commute-micro-english
+    PYTHONPATH=. .venv/bin/python scripts/export_aliyun_learning_catalog.py \
+        --course-code commute-c01-l01
+
+The old full-catalogue export is still available only with ``--full``.  New
+course work should use one material or course scope so that each generated
+package stays small and can be uploaded independently.
 """
 
 from __future__ import annotations
@@ -21,6 +26,7 @@ import datetime as dt
 import hashlib
 import json
 import numbers
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -35,8 +41,50 @@ from app.core.database import make_engine
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "sql" / "deploy" / "20261005_learning_catalog_data.sql"
-DEFAULT_MANIFEST = ROOT / "sql" / "deploy" / "20261005_learning_catalog_manifest.json"
+DEFAULT_OUTPUT_DIR = ROOT / "sql" / "deploy" / "generated"
+
+
+@dataclass(frozen=True)
+class ExportScope:
+    """Stable business-code scope for one content package."""
+
+    material_codes: frozenset[str] = frozenset()
+    course_codes: frozenset[str] = frozenset()
+    full: bool = False
+
+    @property
+    def is_scoped(self) -> bool:
+        return not self.full
+
+    @property
+    def replaces_course_relationships(self) -> bool:
+        """Whether the package owns every relationship of selected courses."""
+
+        return self.full or bool(self.course_codes)
+
+    @property
+    def slug(self) -> str:
+        if self.full:
+            return "full-catalogue"
+        values = [
+            *(f"material-{code}" for code in sorted(self.material_codes)),
+            *(f"course-{code}" for code in sorted(self.course_codes)),
+        ]
+        raw = "-".join(values)
+        slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", raw).strip("-._")
+        return slug[:120] or "learning-catalogue"
+
+    def as_manifest(self) -> dict[str, Any]:
+        return {
+            "mode": "full" if self.full else "scoped",
+            "relationship_mode": (
+                "replace_selected_courses"
+                if self.replaces_course_relationships
+                else "additive_material"
+            ),
+            "material_codes": sorted(self.material_codes),
+            "course_codes": sorted(self.course_codes),
+        }
 
 
 @dataclass(frozen=True)
@@ -123,7 +171,10 @@ def clean(row: dict[str, Any], names: tuple[str, ...]) -> dict[str, Any]:
     return {name: row.get(name) for name in names}
 
 
-def catalogue_tables(connection: Connection) -> list[TemporaryTable]:
+def catalogue_tables(
+    connection: Connection,
+    scope: ExportScope | None = None,
+) -> list[TemporaryTable]:
     module_fields = (
         "module_code",
         "name",
@@ -722,6 +773,143 @@ def catalogue_tables(connection: Connection) -> list[TemporaryTable]:
         )
     ]
 
+    if scope is not None and scope.is_scoped:
+        known_material_codes = {row["material_code"] for row in materials}
+        known_course_codes = {row["course_code"] for row in courses}
+        missing_material_codes = sorted(scope.material_codes - known_material_codes)
+        missing_course_codes = sorted(scope.course_codes - known_course_codes)
+        if missing_material_codes or missing_course_codes:
+            missing = []
+            if missing_material_codes:
+                missing.append(f"material_code={', '.join(missing_material_codes)}")
+            if missing_course_codes:
+                missing.append(f"course_code={', '.join(missing_course_codes)}")
+            raise RuntimeError("Requested catalogue scope was not found: " + "; ".join(missing))
+
+        # A material package contains only that textbook's lessons and blocks.
+        # It still carries the small course/topic metadata needed to make a new
+        # textbook reachable, while preserving any other materials already
+        # arranged in the same course.  A course package is authoritative for
+        # the complete connected course/material set.
+        selected_course_codes = set(scope.course_codes)
+        if scope.course_codes:
+            selected_material_codes = set(scope.material_codes)
+            changed = True
+            while changed:
+                changed = False
+                for row in courses:
+                    if row["course_code"] in selected_course_codes and row["primary_material_code"]:
+                        changed |= row["primary_material_code"] not in selected_material_codes
+                        selected_material_codes.add(row["primary_material_code"])
+                for row in course_materials:
+                    if row["course_code"] in selected_course_codes:
+                        changed |= row["material_code"] not in selected_material_codes
+                        selected_material_codes.add(row["material_code"])
+                for row in courses:
+                    if row["primary_material_code"] in selected_material_codes:
+                        changed |= row["course_code"] not in selected_course_codes
+                        selected_course_codes.add(row["course_code"])
+                for row in course_materials:
+                    if row["material_code"] in selected_material_codes:
+                        changed |= row["course_code"] not in selected_course_codes
+                        selected_course_codes.add(row["course_code"])
+            content_material_codes = set(selected_material_codes)
+        else:
+            content_material_codes = set(scope.material_codes)
+            selected_course_codes = {
+                row["course_code"]
+                for row in courses
+                if row["primary_material_code"] in content_material_codes
+            }
+            selected_course_codes.update(
+                row["course_code"]
+                for row in course_materials
+                if row["material_code"] in content_material_codes
+            )
+            # The primary material is needed as a foreign-key target for a
+            # course row, but its lessons do not belong in a material package.
+            selected_material_codes = content_material_codes | {
+                row["primary_material_code"]
+                for row in courses
+                if row["course_code"] in selected_course_codes
+                and row["primary_material_code"] is not None
+            }
+
+        selected_topic_courses = [
+            row for row in topic_courses if row["course_code"] in selected_course_codes
+        ]
+        selected_topic_keys = {
+            (row["module_code"], row["topic_code"]) for row in selected_topic_courses
+        }
+        selected_module_codes = {module_code for module_code, _ in selected_topic_keys}
+        selected_template_keys = {
+            (row["template_code"], row["template_version"])
+            for row in materials
+            if row["material_code"] in selected_material_codes
+            and row["template_code"] is not None
+        }
+        selected_lesson_keys = {
+            (row["material_code"], row["lesson_code"])
+            for row in lessons
+            if row["material_code"] in content_material_codes
+        }
+        selected_section_keys = {
+            (row["material_code"], row["lesson_code"], row["section_code"])
+            for row in sections
+            if (row["material_code"], row["lesson_code"]) in selected_lesson_keys
+        }
+
+        modules = [row for row in modules if row["module_code"] in selected_module_codes]
+        templates = [
+            row
+            for row in templates
+            if (row["template_code"], row["template_version"]) in selected_template_keys
+        ]
+        topics = [
+            row for row in topics if (row["module_code"], row["topic_code"]) in selected_topic_keys
+        ]
+        materials = [row for row in materials if row["material_code"] in selected_material_codes]
+        courses = [row for row in courses if row["course_code"] in selected_course_codes]
+        if scope.replaces_course_relationships:
+            course_materials = [
+                row for row in course_materials if row["course_code"] in selected_course_codes
+            ]
+        else:
+            course_materials = [
+                row
+                for row in course_materials
+                if row["course_code"] in selected_course_codes
+                and row["material_code"] in content_material_codes
+            ]
+        topic_courses = selected_topic_courses
+        lessons = [row for row in lessons if row["material_code"] in content_material_codes]
+        sections = [
+            row
+            for row in sections
+            if (row["material_code"], row["lesson_code"]) in selected_lesson_keys
+        ]
+        items = [
+            row
+            for row in items
+            if (
+                row["material_code"],
+                row["lesson_code"],
+                row["section_code"],
+            )
+            in selected_section_keys
+        ]
+        blocks = [row for row in blocks if row["material_code"] in content_material_codes]
+        block_sources = [
+            row for row in block_sources if row["material_code"] in content_material_codes
+        ]
+        # Plans and benefit definitions are small shared configuration.  Keep
+        # them in every package, while limiting course access mappings to the
+        # selected courses.  The scoped SQL writer deletes mappings only for
+        # those selected course codes.
+        benefit_courses = [
+            row for row in benefit_courses if row["course_code"] in selected_course_codes
+        ]
+
     return [
         TemporaryTable(
             "tmp_release_modules",
@@ -1010,8 +1198,48 @@ def catalogue_tables(connection: Connection) -> list[TemporaryTable]:
     ]
 
 
-def emit_target_upserts(lines: list[str]) -> None:
+def emit_target_upserts(
+    lines: list[str],
+    *,
+    scoped: bool,
+    replace_relationships: bool,
+) -> None:
     """Emit schema-aware upserts after every temp table has been populated."""
+
+    if replace_relationships:
+        course_material_delete = [
+            "-- The sync is authoritative for relationships within the exported courses.",
+            "DELETE `mapping` FROM `learning_course_material` AS `mapping`",
+            "JOIN `learning_course` AS `course` ON `course`.`id` = `mapping`.`course_id`",
+            "JOIN `tmp_release_courses` AS `source` ON `source`.`course_code` = `course`.`course_code`;",
+            "",
+        ]
+        topic_mapping_delete = [
+            "-- The sync is authoritative for topic mappings within the exported courses.",
+            "DELETE `mapping` FROM `learning_topic_course` AS `mapping`",
+            "JOIN `learning_course` AS `course` ON `course`.`id` = `mapping`.`course_id`",
+            "JOIN `tmp_release_courses` AS `source` ON `source`.`course_code` = `course`.`course_code`;",
+            "",
+        ]
+        benefit_course_delete = [
+            "-- The sync is authoritative for benefit mappings within the exported courses.",
+            "DELETE `mapping` FROM `membership_benefit_course` AS `mapping`",
+            "JOIN `learning_course` AS `course` ON `course`.`id` = `mapping`.`course_id`",
+            "JOIN `tmp_release_courses` AS `source` ON `source`.`course_code` = `course`.`course_code`;",
+            "",
+        ]
+        relationship_insert_tail = [";", ""]
+    else:
+        course_material_delete = []
+        topic_mapping_delete = [
+            "-- Material packages add or update mappings and preserve other course materials.",
+        ]
+        benefit_course_delete = []
+        relationship_insert_tail = [
+            "ON DUPLICATE KEY UPDATE",
+            "  `sort_order`=VALUES(`sort_order`), `updated_by`=VALUES(`updated_by`), `updated_at`=VALUES(`updated_at`);",
+            "",
+        ]
 
     lines.extend(
         [
@@ -1089,31 +1317,24 @@ def emit_target_upserts(lines: list[str]) -> None:
             "  `sort_order`=VALUES(`sort_order`), `is_published`=VALUES(`is_published`),",
             "  `access_policy`=VALUES(`access_policy`), `updated_by`=@release_actor_id, `updated_at`=VALUES(`updated_at`);",
             "",
-            "-- The sync is authoritative for relationships within the exported catalogue.",
-            "DELETE `mapping` FROM `learning_course_material` AS `mapping`",
-            "JOIN `learning_course` AS `course` ON `course`.`id` = `mapping`.`course_id`",
-            "JOIN `tmp_release_courses` AS `source` ON `source`.`course_code` = `course`.`course_code`;",
-            "",
+            *course_material_delete,
             "INSERT INTO `learning_course_material`",
             "(`course_id`,`material_id`,`sort_order`,`created_by`,`created_at`,`updated_by`,`updated_at`)",
             "SELECT `course`.`id`, `material`.`id`, `source`.`sort_order`, @release_actor_id, `source`.`created_at`, @release_actor_id, `source`.`updated_at`",
             "FROM `tmp_release_course_materials` AS `source`",
             "JOIN `learning_course` AS `course` ON `course`.`course_code` = `source`.`course_code`",
-            "JOIN `learning_material` AS `material` ON `material`.`material_code` = `source`.`material_code`;",
+            "JOIN `learning_material` AS `material` ON `material`.`material_code` = `source`.`material_code`",
+            *relationship_insert_tail,
             "",
-            "DELETE `mapping` FROM `learning_topic_course` AS `mapping`",
-            "JOIN `learning_topic` AS `topic` ON `topic`.`id` = `mapping`.`topic_id`",
-            "JOIN `learning_module` AS `module` ON `module`.`id` = `topic`.`module_id`",
-            "JOIN `tmp_release_topics` AS `source`",
-            "  ON `source`.`module_code` = `module`.`module_code` AND `source`.`topic_code` = `topic`.`topic_code`;",
-            "",
+            *topic_mapping_delete,
             "INSERT INTO `learning_topic_course`",
             "(`topic_id`,`course_id`,`sort_order`,`created_by`,`created_at`,`updated_by`,`updated_at`)",
             "SELECT `topic`.`id`, `course`.`id`, `source`.`sort_order`, @release_actor_id, `source`.`created_at`, @release_actor_id, `source`.`updated_at`",
             "FROM `tmp_release_topic_courses` AS `source`",
             "JOIN `learning_module` AS `module` ON `module`.`module_code` = `source`.`module_code`",
             "JOIN `learning_topic` AS `topic` ON `topic`.`module_id` = `module`.`id` AND `topic`.`topic_code` = `source`.`topic_code`",
-            "JOIN `learning_course` AS `course` ON `course`.`course_code` = `source`.`course_code`;",
+            "JOIN `learning_course` AS `course` ON `course`.`course_code` = `source`.`course_code`",
+            *relationship_insert_tail,
             "",
             "INSERT INTO `learning_material_lesson`",
             "(`material_id`,`lesson_code`,`title`,`title_en`,`summary`,`illustration_url`,`source_resource`,`source_reference_id`,`content_json`,`lesson_format`,`lesson_schema_version`,`content_status`,`published_at`,`estimated_minutes`,`sort_order`,`is_published`,`created_by`,`created_at`,`updated_by`,`updated_at`)",
@@ -1214,17 +1435,15 @@ def emit_target_upserts(lines: list[str]) -> None:
             "JOIN `membership_plan` AS `plan` ON `plan`.`plan_code` = `source`.`plan_code`",
             "JOIN `membership_benefit` AS `benefit` ON `benefit`.`benefit_code` = `source`.`benefit_code`;",
             "",
-            "DELETE `mapping` FROM `membership_benefit_course` AS `mapping`",
-            "JOIN `membership_benefit` AS `benefit` ON `benefit`.`id` = `mapping`.`benefit_id`",
-            "JOIN `tmp_release_membership_benefits` AS `source` ON `source`.`benefit_code` = `benefit`.`benefit_code`;",
-            "",
+            *benefit_course_delete,
             "INSERT INTO `membership_benefit_course`",
             "(`benefit_id`,`course_id`,`access_action`,`is_enabled`,`sort_order`,`created_by`,`created_at`,`updated_by`,`updated_at`)",
             "SELECT `benefit`.`id`, `course`.`id`, `source`.`access_action`, `source`.`is_enabled`, `source`.`sort_order`,",
             "       @release_actor_id, `source`.`created_at`, @release_actor_id, `source`.`updated_at`",
             "FROM `tmp_release_benefit_courses` AS `source`",
             "JOIN `membership_benefit` AS `benefit` ON `benefit`.`benefit_code` = `source`.`benefit_code`",
-            "JOIN `learning_course` AS `course` ON `course`.`course_code` = `source`.`course_code`;",
+            "JOIN `learning_course` AS `course` ON `course`.`course_code` = `source`.`course_code`",
+            *relationship_insert_tail,
             "",
             "COMMIT;",
             "",
@@ -1237,23 +1456,34 @@ def table_counts(tables: list[TemporaryTable]) -> dict[str, int]:
     return {table.name.removeprefix("tmp_release_"): len(table.rows) for table in tables}
 
 
-def generate(output: Path, manifest_path: Path) -> dict[str, int]:
+def default_output_path(scope: ExportScope, *, today: dt.date | None = None) -> Path:
+    date_value = today or dt.date.today()
+    return DEFAULT_OUTPUT_DIR / f"{date_value:%Y%m%d}_{scope.slug}_data.sql"
+
+
+def generate(output: Path, manifest_path: Path, scope: ExportScope) -> dict[str, int]:
     settings = Settings()
     engine = make_engine(settings.database_url)
     if engine.dialect.name != "mysql":
         raise RuntimeError("The Aliyun export must be generated from a MySQL database.")
     with engine.connect() as connection:
-        tables = catalogue_tables(connection)
+        tables = catalogue_tables(connection, scope)
 
     counts = table_counts(tables)
-    if not counts["modules"] or not counts["materials"] or not counts["lessons"]:
-        raise RuntimeError("The source database does not contain a complete learning catalogue.")
+    if not counts["materials"] or not counts["lessons"]:
+        raise RuntimeError("The requested scope does not contain a complete learning textbook.")
     if counts["items"] < counts["sections"]:
         raise RuntimeError("Generic lesson item count is unexpectedly lower than section count.")
 
+    scope_comment = (
+        "full learning catalogue"
+        if scope.full
+        else f"scope: {scope.slug}"
+    )
     lines = [
         "-- Happy English learning catalogue content sync for Aliyun MySQL.",
         "-- Generated from the current local MySQL catalogue; numeric IDs are never reused.",
+        f"-- Package {scope_comment}.",
         "-- Prerequisite: run sql/deploy/20261005_aliyun_schema_release.sh first.",
         "-- This script intentionally excludes user accounts, login audit, learning progress,",
         "-- study sessions, and user membership records.",
@@ -1263,15 +1493,24 @@ def generate(output: Path, manifest_path: Path) -> dict[str, int]:
     ]
     for table in tables:
         emit_temporary_table(lines, table)
-    emit_target_upserts(lines)
+    emit_target_upserts(
+        lines,
+        scoped=scope.is_scoped,
+        replace_relationships=scope.replaces_course_relationships,
+    )
     payload = "\n".join(lines) + "\n"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(payload, encoding="utf-8")
 
+    try:
+        manifest_output = str(output.relative_to(ROOT))
+    except ValueError:
+        manifest_output = str(output)
     manifest = {
         "generated_from": "local MySQL learning catalogue",
-        "output": str(output.relative_to(ROOT)),
+        "output": manifest_output,
         "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        "scope": scope.as_manifest(),
         "counts": counts,
         "excluded": [
             "user",
@@ -1290,11 +1529,33 @@ def generate(output: Path, manifest_path: Path) -> dict[str, int]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument("--material-code", action="append", dest="material_codes", metavar="CODE")
+    parser.add_argument("--course-code", action="append", dest="course_codes", metavar="CODE")
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Export the whole catalogue; use a scoped package for normal course releases.",
+    )
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--manifest", type=Path)
     args = parser.parse_args()
-    counts = generate(args.output.resolve(), args.manifest.resolve())
-    print(json.dumps({"output": str(args.output), "counts": counts}, ensure_ascii=False))
+    material_codes = frozenset(args.material_codes or ())
+    course_codes = frozenset(args.course_codes or ())
+    if args.full and (material_codes or course_codes):
+        parser.error("--full cannot be combined with --material-code or --course-code")
+    if not args.full and not material_codes and not course_codes:
+        parser.error("provide --material-code, --course-code, or explicit --full")
+
+    scope = ExportScope(material_codes=material_codes, course_codes=course_codes, full=args.full)
+    output = (args.output or default_output_path(scope)).resolve()
+    manifest = (args.manifest or output.with_suffix(".manifest.json")).resolve()
+    counts = generate(output, manifest, scope)
+    print(
+        json.dumps(
+            {"output": str(output), "manifest": str(manifest), "scope": scope.as_manifest(), "counts": counts},
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":

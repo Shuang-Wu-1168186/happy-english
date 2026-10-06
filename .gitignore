@@ -13,3 +13,5 @@ data/audio/*
 !data/audio/*.vtt
 *.sqlite3
 .DS_Store
+# Per-textbook Aliyun packages are generated locally and can be regenerated.
+sql/deploy/generated/

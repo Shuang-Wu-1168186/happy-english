@@ -204,6 +204,26 @@ def test_filter_pagination_and_auth_permissions(client):
     assert client.get("/api/content/user").status_code == 404
 
 
+def test_note_item_frequency_is_per_user_and_visible_on_note_cards(client):
+    headers = sign_in(client, "learner_test")
+    listed = client.get("/api/content/note-items").json()
+    assert listed["items"][0]["frequency_count"] == 0
+
+    first = client.post("/api/content/note-items/1/frequency", headers=headers)
+    second = client.post("/api/content/note-items/1/frequency", headers=headers)
+    assert first.status_code == 200 and first.json()["frequency_count"] == 1
+    assert second.status_code == 200 and second.json()["frequency_count"] == 2
+
+    detail = client.get("/api/content/note-items/1").json()
+    assert detail["frequency_count"] == 2
+    note = client.get("/api/content/notes/1").json()
+    assert note["items"][0]["frequency_count"] == 2
+
+    admin_headers = sign_in(client)
+    assert client.get("/api/content/note-items").json()["items"][0]["frequency_count"] == 0
+    assert client.post("/api/content/note-items/999/frequency", headers=admin_headers).status_code == 404
+
+
 def test_admin_user_search_supports_membership_picker(client):
     with client.app.state.engine.begin() as connection:
         connection.execute(

@@ -25,6 +25,7 @@ from app.dao.content import (
     VocabularyLibraryDAO,
 )
 from app.services.note_language import classify_note_item
+from app.services.note_frequency import NoteItemFrequencyService
 
 
 INPUT_SCHEMAS = {
@@ -245,8 +246,9 @@ class ContentService:
         page_size=20,
         language_register="",
         scenario="",
+        user=None,
     ):
-        return self.resource_service(resource).list(
+        result = self.resource_service(resource).list(
             q,
             category,
             parent_id,
@@ -255,11 +257,17 @@ class ContentService:
             language_register,
             scenario,
         )
+        if resource == "note-items" and user:
+            result["items"] = self._attach_frequency(result["items"], user["id"])
+        return result
 
-    def get_content(self, resource, item_id):
+    def get_content(self, resource, item_id, user=None):
         service = self.resource_service(resource)
         row = service.require(item_id)
         result = serialise_content(row)
+        frequency_service = NoteItemFrequencyService(self.db) if user else None
+        if resource == "note-items" and frequency_service:
+            result["frequency_count"] = frequency_service.count_for_item(user["id"], item_id)
         parent_id = row.get("note_id") if resource == "note-items" else None
         neighbors = service.dao.neighbor_ids(item_id, parent_id)
         if neighbors:
@@ -272,8 +280,15 @@ class ContentService:
         for key, table_name, foreign_key in CHILDREN.get(resource, []):
             child_service = self.table_service(table_name)
             rows = child_service.dao.list_for_parent(foreign_key, item_id)
-            result[key] = [serialise_content(child) for child in rows]
+            children = [serialise_content(child) for child in rows]
+            if resource == "notes" and key == "items" and user:
+                children = self._attach_frequency(children, user["id"])
+            result[key] = children
         return result
+
+    def _attach_frequency(self, items, user_id):
+        counts = NoteItemFrequencyService(self.db).counts_for_items(user_id, [item["id"] for item in items])
+        return [{**item, "frequency_count": counts.get(item["id"], 0)} for item in items]
 
     def save(self, resource, payload, admin, item_id=None):
         schema = INPUT_SCHEMAS.get(resource)

@@ -6,6 +6,7 @@ from app.api.dependencies import Admin, Db, User
 from app.services.content import ContentService
 from app.services.media import ImageUploadService
 from app.services.membership import MembershipService
+from app.services.note_frequency import NoteItemFrequencyService
 
 router = APIRouter(tags=["learning"])
 
@@ -38,13 +39,23 @@ def list_content(
         page_size,
         language_register,
         scenario,
+        user,
     )
 
 
 @router.get("/content/{resource}/{item_id}")
 def get_content(resource: str, item_id: int, db: Db, user: User):
     MembershipService(db).require_legacy_content_access(user, resource)
-    return ContentService(db).get_content(resource, item_id)
+    return ContentService(db).get_content(resource, item_id, user)
+
+
+@router.post("/content/note-items/{item_id}/frequency")
+def increment_note_item_frequency(item_id: int, db: Db, user: User):
+    MembershipService(db).require_legacy_content_access(user, "note-items")
+    ContentService(db).resource_service("note-items").require(item_id)
+    frequency_count = NoteItemFrequencyService(db).increment(user["id"], item_id)
+    db.commit()
+    return {"success": True, "item_id": item_id, "frequency_count": frequency_count}
 
 
 @router.post("/content/{resource}", status_code=201)

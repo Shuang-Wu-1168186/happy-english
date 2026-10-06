@@ -1,5 +1,6 @@
 -- Happy English Aliyun release verification.
--- Run after 20261005_learning_catalog_data.sql.  It does not modify data.
+-- Run after the schema release or a scoped textbook content package.  It does
+-- not modify data.
 
 SET NAMES utf8mb4;
 
@@ -22,6 +23,7 @@ FROM (
     UNION ALL SELECT 'courseware_block_source'
     UNION ALL SELECT 'membership_plan'
     UNION ALL SELECT 'membership_benefit'
+    UNION ALL SELECT 'english_note_item_frequency'
 ) AS required
 LEFT JOIN information_schema.tables AS existing
   ON existing.table_schema = DATABASE() AND existing.table_name = required.table_name
@@ -40,6 +42,10 @@ FROM (
     UNION ALL SELECT 'learning_material_lesson', 'illustration_url'
     UNION ALL SELECT 'learning_course', 'access_policy'
     UNION ALL SELECT 'user', 'contact_number'
+    UNION ALL SELECT 'english_note_item_frequency', 'user_id'
+    UNION ALL SELECT 'english_note_item_frequency', 'note_item_id'
+    UNION ALL SELECT 'english_note_item_frequency', 'frequency_count'
+    UNION ALL SELECT 'english_note_item_frequency', 'last_recorded_at'
 ) AS required
 LEFT JOIN information_schema.columns AS existing
   ON existing.table_schema = DATABASE()
@@ -60,7 +66,8 @@ UNION ALL SELECT 'items', COUNT(*) FROM `learning_lesson_item`
 UNION ALL SELECT 'courseware_blocks', COUNT(*) FROM `courseware_block`
 UNION ALL SELECT 'courseware_block_sources', COUNT(*) FROM `courseware_block_source`
 UNION ALL SELECT 'membership_plans', COUNT(*) FROM `membership_plan`
-UNION ALL SELECT 'membership_benefits', COUNT(*) FROM `membership_benefit`;
+UNION ALL SELECT 'membership_benefits', COUNT(*) FROM `membership_benefit`
+UNION ALL SELECT 'note_item_frequency_records', COUNT(*) FROM `english_note_item_frequency`;
 
 SELECT
     module.`module_code`,

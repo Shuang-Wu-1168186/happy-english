@@ -118,8 +118,17 @@ def list_learning_templates(db: Db, user: User):
 
 
 @router.get("/learning/materials/{material_id}")
-def get_material(material_id: int, db: Db, user: User):
-    return LearningCatalogService(db).get_material(material_id, user=user)
+def get_material(
+    material_id: int,
+    db: Db,
+    user: User,
+    include_lesson_content: bool = Query(default=False),
+):
+    return LearningCatalogService(db).get_material(
+        material_id,
+        include_lesson_content=include_lesson_content,
+        user=user,
+    )
 
 
 @router.get("/learning/materials/{material_id}/lessons/{lesson_id}")

@@ -1,6 +1,6 @@
 # 阿里云 MySQL 发布包（2026-10-05）
 
-这个目录用于把当前 Happy English 后端发布到已有的阿里云 RDS for MySQL。发布包按稳定业务编码同步课程内容，不使用本地自增 ID，因此不会把本地用户、密码、学习进度或登录审计带到线上。
+这个目录用于把 Happy English 后端发布到已有的阿里云 RDS for MySQL。结构发布和教材内容发布已经分开：结构脚本保持稳定，教材内容按 `material_code` 或 `course_code` 生成独立小包，不使用本地自增 ID，因此不会把本地用户、密码、学习进度或登录审计带到线上。
 
 线上 RDS 的实际连接信息不在当前工作区，所以无法直接比较它的每一行数据。`20261005_aliyun_preflight.sql` 会在目标库中输出真实的表、列和旧结构状态；本地已核对的当前目标结构和内容基线在下方列出。
 
@@ -36,12 +36,13 @@
 | 课件 | 新增 `courseware_block` 和 `courseware_block_source`。 |
 | 通勤配图 | `learning_material_lesson` 新增 `illustration_url`。 |
 | 笔记筛选 | `english_note_item` 新增语体、场景、标注原因、置信度和来源字段。 |
+| 笔记复习记录 | 新增 `english_note_item_frequency`，按用户记录每个笔记词条的手动遇到次数。 |
 | 旧日常口语表 | `daily_spoken_dialogue_item` 和 `learning_lesson_item_source` 只在最终清理阶段删除；新代码已从通用课时表读取内容。 |
 | 已知内容清理 | 删除无引用的空 `beginner-english / travel-english` 重复专题；保留有 10 门课程的 `intermediate-english / travel-english`。 |
 
 本地还有一张空的 `daily_spoken_dialogue_item_import_check` 表，它只是旧导入过程的检查残留，不是应用模型的一部分，也**不应**发布到阿里云。
 
-日志、Kokoro/Whisper 配置、课程前端页面和接口改动不需要数据库结构变更。
+日志、Kokoro/Whisper 配置和课程前端页面不需要数据库结构变更；笔记遇到次数由结构发布脚本自动创建对应表。
 
 ## 文件与执行顺序
 
@@ -54,7 +55,7 @@
 
 2. 完整备份线上数据库。生产库已有数据时，使用 RDS 备份或 `mysqldump --single-transaction --routines --triggers`；不要用本地开发库直接覆盖线上库。
 
-3. 将本目录、`sql/` 下的增量脚本和 `20261005_learning_catalog_data.sql` 一起上传到服务器，设置连接环境变量后执行：
+3. 将代码和 `sql/` 下的增量脚本上传到服务器，设置连接环境变量后执行结构发布：
 
    ```sh
    export MYSQL_HOST='your-rds-endpoint'
@@ -64,7 +65,7 @@
    ./sql/deploy/20261005_aliyun_schema_release.sh
    ```
 
-   该脚本会建立 `app_schema_migration` 发布账本，先识别目标库是旧结构还是当前结构，只执行仍需要的历史迁移，再同步当前学习目录和会员配置，并执行发布后检查。重复执行时会跳过已记录的阶段。若要重新覆盖当前课程配置，追加 `--force-content`。
+   该脚本会建立 `app_schema_migration` 发布账本，先识别目标库是旧结构还是当前结构，只执行仍需要的历史迁移。它不再读取已经删除的大型课程数据文件。
 
 4. 部署后端和前端，验证健康检查、登录、课程列表、课程详情和通勤页面。确认无误后再清理已不再被代码读取的旧表：
 
@@ -81,9 +82,33 @@
 
 ## 内容同步的边界
 
-`20261005_learning_catalog_data.sql` 是由 `scripts/export_aliyun_learning_catalog.py` 从本地 MySQL 生成的 82 MB 同步脚本。它会更新课程、教材、课时、通用区块、课件区块、模板和会员访问配置；并且只在这些课程范围内重建课程关系及课时子内容。
+每生成一本教材，使用统一发布命令生成一个独立 SQL 包并同步到阿里云：
+
+```sh
+export MYSQL_HOST='147.139.172.68'
+export MYSQL_PORT='3306'
+export MYSQL_USER='root'
+export MYSQL_DATABASE='happy_english'
+export MYSQL_PWD='your-password'
+
+PYTHONPATH=. .venv/bin/python scripts/publish_aliyun_textbook.py \
+  --material-code your-material-code
+```
+
+也可以按课程发布：
+
+```sh
+PYTHONPATH=. .venv/bin/python scripts/publish_aliyun_textbook.py \
+  --course-code your-course-code
+```
+
+`--material-code` 会带上使用该教材的课程元数据、该教材的全部课时、通用课时内容和课件区块，并保留同一课程中已经存在的其他教材关系；`--course-code` 会带上该课程关联的全部教材和内容，并重建该课程的关系。脚本会先幂等地补齐线上结构，再生成 `sql/deploy/generated/YYYYMMDD_<scope>_data.sql` 和 manifest，上传成功后写入发布账本并执行 postflight。生成目录是本地发布产物，不需要把大型完整目录重新提交到仓库。
+
+需要只检查生成结果时，加 `--dry-run`；目标库结构已经确认完成时可以加 `--skip-schema`。以后新增教材完成本地生成后，直接调用这个命令即可，我会按同一流程同步阿里云。
 
 它明确不导出以下运行期或隐私数据：`user`、`login_audit`、`learning_progress`、`learning_progress_item`、`learning_study_session`、`user_membership`、`learning_user_course`。
+
+所有内容包都按稳定业务编码匹配线上记录。更新同一本教材会覆盖它的课程内容和关系，不会使用本地自增 ID，也不会覆盖线上用户数据。
 
 部分旧课时仍通过 `source_resource` 指向英文笔记、课本、儿童卡片等基础内容表。已有阿里云旧库会保留这些表和记录。若部署到一个全新的空 RDS，先导入可信的基础库备份或按旧数据导入脚本建立这些基础内容，再运行本发布包；不能只导入课程同步脚本。
 
@@ -93,10 +118,11 @@
 
 ## 可再生成内容脚本
 
-当课程内容继续变化时，在连接到确认无误的本地内容库后重新生成，并一并提交新的 SQL 与 manifest：
+如需单独生成内容包而暂时不上传：
 
 ```sh
-PYTHONPATH=. .venv/bin/python scripts/export_aliyun_learning_catalog.py
+PYTHONPATH=. .venv/bin/python scripts/export_aliyun_learning_catalog.py \
+  --material-code your-material-code
 ```
 
-生成后的哈希和行数记录在 `20261005_learning_catalog_manifest.json` 中。不要手改 82 MB 的生成 SQL；修改内容后重新生成即可。
+不要手改生成的 SQL；修改本地教材后重新生成同一范围即可。完整目录导出仍支持 `--full`，但日常教材发布不要使用完整导出。
