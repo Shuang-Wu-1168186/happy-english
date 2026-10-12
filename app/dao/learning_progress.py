@@ -118,27 +118,29 @@ class LearningStudySessionDAO(BaseTableDAO):
             .all()
         )
 
-    def time_summary(self, user_id, start_date=None, end_date=None):
+    def time_summary(self, user_id, start_date=None, end_date=None, include_days=True):
         filters = [self.table.c.user_id == user_id, self.table.c.ended_at.is_not(None)]
         if start_date:
             filters.append(self.table.c.started_at >= datetime.combine(start_date, time.min))
         if end_date:
             filters.append(self.table.c.started_at < datetime.combine(end_date + timedelta(days=1), time.min))
-        study_date = func.date(self.table.c.started_at).label("study_date")
-        daily = (
-            self.db.execute(
-                select(
-                    study_date,
-                    func.coalesce(func.sum(self.table.c.active_seconds), 0).label("active_seconds"),
-                    func.count().label("session_count"),
+        daily = []
+        if include_days:
+            study_date = func.date(self.table.c.started_at).label("study_date")
+            daily = (
+                self.db.execute(
+                    select(
+                        study_date,
+                        func.coalesce(func.sum(self.table.c.active_seconds), 0).label("active_seconds"),
+                        func.count().label("session_count"),
+                    )
+                    .where(*filters)
+                    .group_by(study_date)
+                    .order_by(study_date)
                 )
-                .where(*filters)
-                .group_by(study_date)
-                .order_by(study_date)
+                .mappings()
+                .all()
             )
-            .mappings()
-            .all()
-        )
         total = self.db.scalar(
             select(func.coalesce(func.sum(self.table.c.active_seconds), 0)).where(*filters)
         )

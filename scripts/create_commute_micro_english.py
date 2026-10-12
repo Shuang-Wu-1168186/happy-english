@@ -595,7 +595,7 @@ def main():
                 difficulty_code="a1-a2",
                 sort_order=10,
                 is_published=1,
-                access_policy="free",
+                access_policy="benefit",
             ),
             ACTOR,
             course_id,

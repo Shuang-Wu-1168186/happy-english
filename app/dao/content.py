@@ -147,6 +147,12 @@ class EnglishNoteDAO(ContentTableDAO):
     resource = "notes"
     table = m.english_note
 
+    def visible_conditions(self):
+        # The legacy content endpoints represent the platform library. Private
+        # and family notes are served by the private-zone service after an
+        # ownership or group-membership check.
+        return [*super().visible_conditions(), self.table.c.scope_type == "platform"]
+
     def related_search_condition(self, query):
         items = EnglishNoteItemDAO(self.db)
         return (
@@ -163,6 +169,18 @@ class EnglishNoteDAO(ContentTableDAO):
 class EnglishNoteItemDAO(ContentTableDAO):
     resource = "note-items"
     table = m.english_note_item
+
+    def visible_conditions(self):
+        notes = m.english_note
+        return [
+            *super().visible_conditions(),
+            select(notes.c.id)
+            .where(
+                notes.c.id == self.table.c.note_id,
+                notes.c.scope_type == "platform",
+            )
+            .exists(),
+        ]
 
     def related_search_condition(self, query):
         notes = EnglishNoteDAO(self.db)
@@ -203,6 +221,11 @@ class InterviewQuestionTagDAO(ContentTableDAO):
 class KidsEnglishCardDAO(ContentTableDAO):
     resource = "kids-cards"
     table = m.kids_english_card
+
+    def list_ordering(self):
+        # This is a sequenced textbook deck, not a newest-first library.
+        # The first card must stay the editorially chosen opening word.
+        return self.ordering()
 
 
 class KidsEnglishCardExampleDAO(ContentTableDAO):

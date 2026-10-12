@@ -40,8 +40,15 @@ def read_session(request) -> dict:
     return {}
 
 
-def issue_session(response, settings, user=None, *, auth_method: str | None = None) -> str:
-    token = secrets.token_urlsafe(32)
+def issue_session(
+    response,
+    settings,
+    user=None,
+    *,
+    auth_method: str | None = None,
+    csrf_token: str | None = None,
+) -> str:
+    token = csrf_token or secrets.token_urlsafe(32)
     data = {"csrf": token}
     if user:
         data.update(uid=user["id"], version=password_version(user["password_hash"], settings.secret_key))

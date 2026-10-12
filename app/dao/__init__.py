@@ -9,6 +9,7 @@ from app.dao.learning_progress import LEARNING_PROGRESS_TABLE_DAO_TYPES
 from app.dao.membership import MEMBERSHIP_TABLE_DAO_TYPES
 from app.dao.note_frequency import NOTE_ITEM_FREQUENCY_TABLE_DAO_TYPES
 from app.dao.progress import STUDY_PROGRESS_TABLE_DAO_TYPES
+from app.dao.private_zone import PRIVATE_ZONE_TABLE_DAO_TYPES
 
 TABLE_DAO_TYPES = {
     **ACCOUNT_TABLE_DAO_TYPES,
@@ -20,4 +21,5 @@ TABLE_DAO_TYPES = {
     **MEMBERSHIP_TABLE_DAO_TYPES,
     **NOTE_ITEM_FREQUENCY_TABLE_DAO_TYPES,
     **STUDY_PROGRESS_TABLE_DAO_TYPES,
+    **PRIVATE_ZONE_TABLE_DAO_TYPES,
 }

@@ -26,7 +26,6 @@ from app.services.learning_catalog import LearningCatalogService, LearningCourse
 # units), rather than raw sentences, cards, or dialogue lines.
 FREE_PREVIEW_LESSON_COUNT = 2
 
-
 def serialise_membership(row):
     """Decode persisted JSON values into the API fields used by the admin UI."""
     result = dict(row)
@@ -159,33 +158,74 @@ class LearningUserCourseService(MembershipTableService):
             "membership_id": membership["id"] if membership else None,
         }
 
+    def _topic_preview_courses(self, course):
+        """Return the topic-wide member-course path for one shared trial.
+
+        Membership access belongs to a topic, even when its textbooks are
+        stored as separate course records. Every published member course in a
+        topic therefore consumes the same two-lesson preview allocation.
+        Standalone courses retain their own two-lesson preview.
+        """
+        if course["access_policy"] != "benefit":
+            return None
+        for topic in self.catalog._course_topic_rows(course["id"], published_only=True):
+            candidates = [
+                candidate
+                for candidate in self.catalog._courses_for_topic(
+                    topic["id"], published_only=True
+                )
+                if candidate["access_policy"] == "benefit"
+            ]
+            if candidates:
+                return candidates
+        return None
+
+    def preview_lesson_ids(self, course):
+        """Return the lesson IDs available to a learner without entitlement.
+
+        The IDs are derived from the topic's course path rather than a local
+        lesson index. That lets a later textbook return an empty set once the
+        topic's first two lessons have already been allocated, while retaining
+        the existing per-course preview for standalone member courses.
+        """
+        courses = self._topic_preview_courses(course) or [course]
+        lesson_ids = []
+        seen_material_ids = set()
+        for scoped_course in courses:
+            for material in self.catalog._course_material_rows(
+                scoped_course, published_only=True
+            ):
+                material_id = material["id"]
+                if material_id in seen_material_ids:
+                    continue
+                seen_material_ids.add(material_id)
+                lesson_ids.extend(
+                    lesson["id"]
+                    for lesson in self.catalog.material_lessons.dao.list_lessons(material_id)
+                )
+        return set(lesson_ids[:FREE_PREVIEW_LESSON_COUNT])
+
     def material_access(self, user_id, material_id):
         """Resolve lesson access when a learner enters through a material.
 
         The public catalogue now opens a material directly, while membership
         is still configured on courses.  A material may belong to several
         courses, so it is available in full when any linked course is free or
-        already entitled.  Otherwise only the first two lessons in the linked
-        course sequence are previewable.
+        already entitled.  Otherwise its preview comes from the configured
+        course sequence. Member courses in the same topic share one sequence;
+        standalone member courses use their own sequence.
         """
         linked_courses = []
-        unlocked_indexes = set()
+        preview_lesson_ids = set()
         has_membership_course = False
         catalog = self.catalog
+        material_lessons = catalog.material_lessons.dao.list_lessons(material_id)
 
         for course in catalog._courses_for_material(material_id):
             if course["is_published"] != 1:
                 continue
             material_rows = catalog._course_material_rows(course, published_only=True)
-            material_position = next(
-                (
-                    position
-                    for position, row in enumerate(material_rows)
-                    if row["id"] == material_id
-                ),
-                None,
-            )
-            if material_position is None:
+            if not any(row["id"] == material_id for row in material_rows):
                 continue
             linked_courses.append(course)
             access = self.course_access(user_id, course)
@@ -199,18 +239,7 @@ class LearningUserCourseService(MembershipTableService):
                     "requires_membership": course["access_policy"] == "benefit",
                     "unlocked_lesson_indexes": None,
                 }
-
-            # Preview count is global to a course, including lessons in
-            # materials that come before this one.
-            preceding_lessons = sum(
-                len(catalog.material_lessons.dao.list_lessons(row["id"]))
-                for row in material_rows[:material_position]
-            )
-            material_lesson_count = len(
-                catalog.material_lessons.dao.list_lessons(material_id)
-            )
-            remaining_preview = max(0, FREE_PREVIEW_LESSON_COUNT - preceding_lessons)
-            unlocked_indexes.update(range(min(material_lesson_count, remaining_preview)))
+            preview_lesson_ids.update(self.preview_lesson_ids(course))
 
         if not linked_courses:
             return {
@@ -220,12 +249,17 @@ class LearningUserCourseService(MembershipTableService):
                 "requires_membership": False,
                 "unlocked_lesson_indexes": None,
             }
+        unlocked_indexes = [
+            index
+            for index, lesson in enumerate(material_lessons)
+            if lesson["id"] in preview_lesson_ids
+        ]
         return {
             "access_state": "preview",
             "membership_id": None,
-            "preview_lesson_count": FREE_PREVIEW_LESSON_COUNT,
+            "preview_lesson_count": len(unlocked_indexes),
             "requires_membership": has_membership_course,
-            "unlocked_lesson_indexes": sorted(unlocked_indexes),
+            "unlocked_lesson_indexes": unlocked_indexes,
         }
 
     def enroll(self, user, course_id):
@@ -628,17 +662,21 @@ class MembershipService:
         # preview.  Locked lessons deliberately omit their source content so
         # this is enforced by the API as well as represented in the UI.
         if access["access_state"] == "locked":
+            preview_lesson_ids = self.user_courses.preview_lesson_ids(course)
             result = catalog.get_course(
                 course_id,
                 include_lesson_content=True,
-                unlocked_lesson_count=FREE_PREVIEW_LESSON_COUNT,
+                unlocked_lesson_ids=preview_lesson_ids,
             )
             result.pop("content", None)
             return {
                 **result,
                 "access_state": "preview",
                 "membership_id": None,
-                "preview_lesson_count": FREE_PREVIEW_LESSON_COUNT,
+                "preview_lesson_count": sum(
+                    lesson["id"] in preview_lesson_ids
+                    for lesson in result["lessons"]
+                ),
                 "requires_membership": True,
             }
 

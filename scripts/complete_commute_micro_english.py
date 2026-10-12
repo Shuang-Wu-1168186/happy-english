@@ -1833,7 +1833,7 @@ def chapter_course_payload(topic_id: int, material_id: int, chapter: Chapter, co
         difficulty_code="a1-a2",
         sort_order=chapter.number * 10,
         is_published=1,
-        access_policy="free",
+        access_policy="benefit",
     )
 
 

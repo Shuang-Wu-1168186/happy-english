@@ -10,7 +10,16 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 
-from app.api import accounts, audio, content, learning_catalog, learning_progress, membership, progress
+from app.api import (
+    accounts,
+    audio,
+    content,
+    learning_catalog,
+    learning_progress,
+    membership,
+    private_zone,
+    progress,
+)
 from app.core.config import Settings
 from app.core.database import make_engine
 from app.core.logging import (
@@ -145,6 +154,7 @@ def create_app(settings: Settings | None = None, engine=None):
     app.include_router(content.router, prefix="/api")
     app.include_router(learning_catalog.router, prefix="/api")
     app.include_router(membership.router, prefix="/api")
+    app.include_router(private_zone.router, prefix="/api")
     app.include_router(learning_progress.router, prefix="/api")
     app.include_router(progress.router, prefix="/api")
     app.include_router(audio.router, prefix="/api")

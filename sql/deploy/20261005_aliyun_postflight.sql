@@ -24,6 +24,12 @@ FROM (
     UNION ALL SELECT 'membership_plan'
     UNION ALL SELECT 'membership_benefit'
     UNION ALL SELECT 'english_note_item_frequency'
+    UNION ALL SELECT 'family_group'
+    UNION ALL SELECT 'family_group_member'
+    UNION ALL SELECT 'private_zone_feature'
+    UNION ALL SELECT 'private_zone_item'
+    UNION ALL SELECT 'private_zone_shortcut'
+    UNION ALL SELECT 'personal_note'
 ) AS required
 LEFT JOIN information_schema.tables AS existing
   ON existing.table_schema = DATABASE() AND existing.table_name = required.table_name
@@ -46,6 +52,13 @@ FROM (
     UNION ALL SELECT 'english_note_item_frequency', 'note_item_id'
     UNION ALL SELECT 'english_note_item_frequency', 'frequency_count'
     UNION ALL SELECT 'english_note_item_frequency', 'last_recorded_at'
+    UNION ALL SELECT 'english_note', 'scope_type'
+    UNION ALL SELECT 'english_note', 'owner_user_id'
+    UNION ALL SELECT 'english_note', 'family_group_id'
+    UNION ALL SELECT 'family_group', 'invite_code'
+    UNION ALL SELECT 'family_group', 'invite_code_expires_at'
+    UNION ALL SELECT 'private_zone_shortcut', 'scope_type'
+    UNION ALL SELECT 'private_zone_shortcut', 'family_group_id'
 ) AS required
 LEFT JOIN information_schema.columns AS existing
   ON existing.table_schema = DATABASE()
@@ -67,7 +80,9 @@ UNION ALL SELECT 'courseware_blocks', COUNT(*) FROM `courseware_block`
 UNION ALL SELECT 'courseware_block_sources', COUNT(*) FROM `courseware_block_source`
 UNION ALL SELECT 'membership_plans', COUNT(*) FROM `membership_plan`
 UNION ALL SELECT 'membership_benefits', COUNT(*) FROM `membership_benefit`
-UNION ALL SELECT 'note_item_frequency_records', COUNT(*) FROM `english_note_item_frequency`;
+UNION ALL SELECT 'note_item_frequency_records', COUNT(*) FROM `english_note_item_frequency`
+UNION ALL SELECT 'private_zone_features', COUNT(*) FROM `private_zone_feature`
+UNION ALL SELECT 'family_groups', COUNT(*) FROM `family_group`;
 
 SELECT
     module.`module_code`,

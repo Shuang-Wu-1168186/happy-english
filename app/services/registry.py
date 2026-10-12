@@ -9,6 +9,7 @@ from app.services.lesson_content import LESSON_CONTENT_TABLE_SERVICE_TYPES
 from app.services.membership import MEMBERSHIP_TABLE_SERVICE_TYPES
 from app.services.note_frequency import NOTE_ITEM_FREQUENCY_TABLE_SERVICE_TYPES
 from app.services.progress import StudyProgressService
+from app.services.private_zone import PRIVATE_ZONE_TABLE_SERVICE_TYPES
 
 TABLE_SERVICE_TYPES = {
     **CONTENT_TABLE_SERVICE_TYPES,
@@ -21,4 +22,5 @@ TABLE_SERVICE_TYPES = {
     "user": UserService,
     "login_audit": LoginAuditService,
     "study_progress": StudyProgressService,
+    **PRIVATE_ZONE_TABLE_SERVICE_TYPES,
 }

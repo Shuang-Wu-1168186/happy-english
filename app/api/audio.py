@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from app.api.dependencies import User
 from app.audio.assessment import calculate_assessment_score
 from app.schemas import TTSInput
+from app.services.roleston_menu import ROLLESTON_MENU_TTS_TEXTS
 
 router = APIRouter(prefix="/audio", tags=["audio"])
 whisper_model = None
@@ -27,8 +28,8 @@ def require_audio(request):
         )
 
 
-@router.post("/tts")
-def tts(data: TTSInput, request: Request, user: User):
+def synthesize_tts(data: TTSInput, request: Request):
+    """Generate or return cached audio with the project's Kokoro model."""
     require_audio(request)
     started_at = perf_counter()
     text_length = len(data.text)
@@ -90,6 +91,20 @@ def tts(data: TTSInput, request: Request, user: User):
         raise HTTPException(
             503, "Speech model unavailable. Check audio dependencies and model configuration."
         ) from exc
+
+
+@router.post("/tts")
+def tts(data: TTSInput, request: Request, user: User):
+    return synthesize_tts(data, request)
+
+
+@router.get("/menu-tts/{item_id}")
+def menu_tts(item_id: str, request: Request):
+    """Play a fixed public menu phrase through the same Kokoro TTS service."""
+    text = ROLLESTON_MENU_TTS_TEXTS.get(item_id)
+    if text is None:
+        raise HTTPException(404, "Menu audio item not found.")
+    return synthesize_tts(TTSInput(text=text, lang="b", speed=0.82, cache=True), request)
 
 
 @router.post("/assessment")

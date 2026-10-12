@@ -113,3 +113,9 @@ def test_learning_sessions_accumulate_time_without_duplicate_finish(client):
     assert summary.status_code == 200
     assert summary.json()["total_active_seconds"] == 1
     assert summary.json()["days"][0]["session_count"] == 1
+
+    total_only = client.get(
+        "/api/learning/study-time?include_days=false", headers=headers
+    )
+    assert total_only.status_code == 200
+    assert total_only.json() == {"total_active_seconds": 1, "days": []}

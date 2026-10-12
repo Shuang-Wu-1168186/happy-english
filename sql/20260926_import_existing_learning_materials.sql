@@ -63,8 +63,8 @@ ON DUPLICATE KEY UPDATE `topic_code` = VALUES(`topic_code`);
 INSERT INTO `learning_material`
     (`topic_id`, `material_code`, `title`, `title_en`, `summary`, `material_type`,
      `publisher`, `version_name`, `estimated_minutes`, `sort_order`, `is_published`)
-SELECT topic.`id`, 'english-textbook-current', '现有英文课本', 'Current English Textbook',
-       '按单元和课文学习现有英文课本内容。', 'textbook',
+SELECT topic.`id`, 'english-textbook-current', '小学英语教材', 'Primary English Textbook',
+       '按单元和课文学习小学英语，包含 Guoguo、Lingling、Maomao 等角色对话。', 'textbook',
        'Happy English', '现有内容导入', COUNT(*) * 15, 10, 1
 FROM `english_textbook_lesson` lesson
 JOIN `learning_topic` topic

@@ -14,9 +14,13 @@ from app.dao.lesson_content import (
 
 
 SECTION_RULES = {
-    "core_vocabulary": {"min": 4, "max": 6},
-    "situational_dialogues": {"min": 6, "max": 8},
-    "key_sentence_patterns": {"min": 3, "max": 5},
+    # A section must contain useful learning content, but it must not force
+    # authors to pad a short scene with repeated template prompts. Different
+    # curriculum formats can now use one rich dialogue or several smaller
+    # exchanges while retaining the same cross-client seven-section contract.
+    "core_vocabulary": {"min": 1, "max": 6},
+    "situational_dialogues": {"min": 1, "max": 8},
+    "key_sentence_patterns": {"min": 1, "max": 5},
     "speaking_practice": {"min": 1, "max": None},
     "mini_exercises": {"min": 1, "max": None},
     "useful_tips": {"min": 1, "max": None},

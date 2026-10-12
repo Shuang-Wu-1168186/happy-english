@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+import pytest
+
 from tests.conftest import sign_in
 
 
@@ -410,6 +412,132 @@ def test_membership_preview_counts_lessons_across_linked_materials(client):
     assert [lesson["id"] for lesson in data["lessons"]] == [lesson["id"] for lesson in lessons]
     assert [lesson["is_locked"] for lesson in data["lessons"]] == [False, False, True]
     assert [lesson["is_locked"] for lesson in data["materials"][1]["lessons"]] == [False, True]
+
+
+@pytest.mark.parametrize(
+    ("topic_code", "topic_title"),
+    [
+        ("travel-english", "旅游英语"),
+        ("shopping-english", "购物实用英语"),
+        ("commute-micro-english", "地铁通勤英语"),
+        ("software-developer-workplace-english", "软件开发职场英语"),
+        ("ordinary-member-topic-preview", "普通专题会员试看"),
+    ],
+)
+def test_membership_topic_preview_is_shared_across_the_whole_topic(
+    client, topic_code, topic_title
+):
+    admin_headers = sign_in(client)
+    topic = client.post(
+        "/api/admin/learning/topics",
+        headers=admin_headers,
+        json={
+            "module_id": 3,
+            "topic_code": topic_code,
+            "title": topic_title,
+        },
+    )
+    assert topic.status_code == 201
+    topic_id = topic.json()["id"]
+
+    materials = []
+    courses = []
+    for material_code, title, lesson_count in [
+        ("travel-preview-before-trip", "出发前", 3),
+        ("travel-preview-airport", "在机场", 2),
+    ]:
+        material = client.post(
+            "/api/admin/learning-materials",
+            headers=admin_headers,
+            json={
+                "topic_id": topic_id,
+                "material_code": material_code,
+                "title": title,
+                "material_type": "textbook",
+            },
+        )
+        assert material.status_code == 201
+        materials.append(material.json())
+        for number in range(1, lesson_count + 1):
+            lesson = client.post(
+                f"/api/admin/learning-materials/{material.json()['id']}/lessons",
+                headers=admin_headers,
+                json={
+                    "lesson_code": f"{material_code}-{number}",
+                    "title": f"{title}第 {number} 课",
+                    "content": {"blocks": [{"text": f"{title}第 {number} 课正文"}]},
+                    "sort_order": number,
+                },
+            )
+            assert lesson.status_code == 201
+        course = client.post(
+            "/api/admin/learning/courses",
+            headers=admin_headers,
+            json={
+                "topic_id": topic_id,
+                "material_id": material.json()["id"],
+                "course_code": f"{material_code}-course",
+                "title": title,
+                "access_policy": "benefit",
+            },
+        )
+        assert course.status_code == 201
+        courses.append(course.json())
+
+    learner_headers = sign_in(client, "learner_test")
+    first_material = client.get(
+        f"/api/learning/materials/{materials[0]['id']}?include_lesson_content=true",
+        headers=learner_headers,
+    )
+    assert first_material.status_code == 200
+    first_material_data = first_material.json()
+    assert first_material_data["preview_lesson_count"] == 2
+    assert [lesson["is_locked"] for lesson in first_material_data["lessons"]] == [
+        False,
+        False,
+        True,
+    ]
+
+    second_material = client.get(
+        f"/api/learning/materials/{materials[1]['id']}?include_lesson_content=true",
+        headers=learner_headers,
+    )
+    assert second_material.status_code == 200
+    second_material_data = second_material.json()
+    assert second_material_data["preview_lesson_count"] == 0
+    assert [lesson["is_locked"] for lesson in second_material_data["lessons"]] == [
+        True,
+        True,
+    ]
+    assert all("content" not in lesson for lesson in second_material_data["lessons"])
+
+    first_course = client.post(
+        f"/api/learning/courses/{courses[0]['id']}/open", headers=learner_headers
+    )
+    assert first_course.status_code == 200
+    assert [lesson["is_locked"] for lesson in first_course.json()["lessons"]] == [
+        False,
+        False,
+        True,
+    ]
+
+    second_course = client.post(
+        f"/api/learning/courses/{courses[1]['id']}/open", headers=learner_headers
+    )
+    assert second_course.status_code == 200
+    second_course_data = second_course.json()
+    assert second_course_data["preview_lesson_count"] == 0
+    assert [lesson["is_locked"] for lesson in second_course_data["lessons"]] == [
+        True,
+        True,
+    ]
+
+    locked_lesson = client.get(
+        "/api/learning/materials/"
+        f"{materials[1]['id']}/lessons/{second_material_data['lessons'][0]['id']}",
+        headers=learner_headers,
+    )
+    assert locked_lesson.status_code == 403
 
 
 def test_new_registration_receives_the_configured_default_membership(client):

@@ -28,6 +28,17 @@ english_note = Table(
     Column("source", String(100), nullable=True),
     Column("summary", Text, nullable=True),
     Column("share_status", Integer, nullable=False, server_default=text("'0'")),
+    # `platform` keeps the legacy content library semantics.  Personal and
+    # family notes are kept in the same content table, but are exposed only
+    # through the private-zone access rules.
+    Column("scope_type", String(20), nullable=False, server_default=text("'platform'")),
+    Column("owner_user_id", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column(
+        "family_group_id",
+        Integer,
+        ForeignKey("family_group.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
     Column("priority_order", Integer, nullable=False, server_default=text("'0'")),
     Column("created_by", Integer, nullable=False),
     Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
@@ -254,6 +265,188 @@ user = Table(
     UniqueConstraint("username"),
     UniqueConstraint("email"),
     UniqueConstraint("contact_number", name="uk_user_contact_number"),
+)
+
+family_group = Table(
+    "family_group",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("name", String(120), nullable=False),
+    Column("owner_user_id", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("status", String(20), nullable=False, server_default=text("'active'")),
+    Column("invite_code", String(20), nullable=True, unique=True),
+    Column("invite_code_expires_at", DateTime, nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+)
+Index("idx_family_group_owner_status", family_group.c.owner_user_id, family_group.c.status)
+
+family_group_member = Table(
+    "family_group_member",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "family_group_id",
+        Integer,
+        ForeignKey("family_group.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
+    Column("role", String(20), nullable=False, server_default=text("'member'")),
+    Column("status", String(20), nullable=False, server_default=text("'active'")),
+    Column("invited_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("joined_at", DateTime, nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("family_group_id", "user_id", name="uk_family_group_member_user"),
+)
+Index(
+    "idx_family_group_member_user_status",
+    family_group_member.c.user_id,
+    family_group_member.c.status,
+)
+Index(
+    "idx_family_group_member_group_status",
+    family_group_member.c.family_group_id,
+    family_group_member.c.status,
+)
+
+private_zone_feature = Table(
+    "private_zone_feature",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("feature_code", String(80), nullable=False),
+    Column("title", String(120), nullable=False),
+    Column("title_en", String(120), nullable=True),
+    Column("description", String(500), nullable=True),
+    Column("icon", String(32), nullable=True),
+    Column("route_key", String(100), nullable=False),
+    Column("target_url", String(1000), nullable=True),
+    Column("config_json", Text, nullable=True),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("is_enabled", Integer, nullable=False, server_default=text("'1'")),
+    Column("created_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("feature_code"),
+)
+Index(
+    "idx_private_zone_feature_enabled_order",
+    private_zone_feature.c.is_enabled,
+    private_zone_feature.c.sort_order,
+)
+
+private_zone_item = Table(
+    "private_zone_item",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("scope_type", String(20), nullable=False),
+    Column("owner_user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=True),
+    Column(
+        "family_group_id",
+        Integer,
+        ForeignKey("family_group.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    Column("resource_type", String(30), nullable=False),
+    Column("resource_id", Integer, nullable=False),
+    Column("label", String(255), nullable=True),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("status", String(20), nullable=False, server_default=text("'active'")),
+    Column("added_by_user_id", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+)
+Index(
+    "idx_private_zone_item_user_status_order",
+    private_zone_item.c.owner_user_id,
+    private_zone_item.c.status,
+    private_zone_item.c.sort_order,
+)
+Index(
+    "idx_private_zone_item_family_status_order",
+    private_zone_item.c.family_group_id,
+    private_zone_item.c.status,
+    private_zone_item.c.sort_order,
+)
+Index(
+    "idx_private_zone_item_resource",
+    private_zone_item.c.resource_type,
+    private_zone_item.c.resource_id,
+)
+
+# A shortcut is curated by one administrator for one family learning group.
+# It does not duplicate learning catalogue content: it can point to an existing
+# HappyEnglish route or to an approved HTTP(S) resource.
+private_zone_shortcut = Table(
+    "private_zone_shortcut",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "scope_type",
+        String(20),
+        nullable=False,
+        server_default=text("'family'"),
+    ),
+    Column(
+        "family_group_id",
+        Integer,
+        ForeignKey("family_group.id", ondelete="CASCADE"),
+        nullable=True,
+    ),
+    Column("title", String(120), nullable=False),
+    Column("target_url", String(1000), nullable=False),
+    Column("description", String(500), nullable=True),
+    Column("icon", String(32), nullable=True),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("status", String(20), nullable=False, server_default=text("'active'")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+)
+Index(
+    "idx_private_zone_shortcut_user_status_order",
+    private_zone_shortcut.c.user_id,
+    private_zone_shortcut.c.status,
+    private_zone_shortcut.c.sort_order,
+)
+Index(
+    "idx_private_zone_shortcut_scope_status_order",
+    private_zone_shortcut.c.scope_type,
+    private_zone_shortcut.c.status,
+    private_zone_shortcut.c.sort_order,
+)
+Index(
+    "idx_private_zone_shortcut_family_status_order",
+    private_zone_shortcut.c.family_group_id,
+    private_zone_shortcut.c.status,
+    private_zone_shortcut.c.sort_order,
+)
+
+# Personal notes are intentionally independent from english_note.  The latter
+# remains curated English-learning content; this table is a lightweight,
+# private notebook available to every learner.
+personal_note = Table(
+    "personal_note",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
+    Column("title", String(200), nullable=False),
+    Column("content", Text, nullable=True),
+    Column("tags", String(500), nullable=True),
+    Column("color", String(32), nullable=True),
+    Column("is_pinned", Integer, nullable=False, server_default=text("'0'")),
+    Column("status", String(20), nullable=False, server_default=text("'active'")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+)
+Index(
+    "idx_personal_note_user_status_pinned_updated",
+    personal_note.c.user_id,
+    personal_note.c.status,
+    personal_note.c.is_pinned,
+    personal_note.c.updated_at,
 )
 
 login_audit = Table(

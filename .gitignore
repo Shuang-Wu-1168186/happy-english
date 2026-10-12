@@ -11,7 +11,27 @@ data/*
 !data/audio/
 data/audio/*
 !data/audio/*.vtt
+# Generated course assets are part of the application package, unlike user
+# uploads and transient local data.
+!data/static/
+data/static/*
+!data/static/images/
+data/static/images/*
+!data/static/images/learning_material/
+data/static/images/learning_material/*
+!data/static/images/learning_material/icon/
+!data/static/images/learning_material/icon/*.png
+# Commute lesson illustrations are generated course assets, just like the
+# material icons above. They must travel with a Git-based deployment.
+!data/static/commute-covers/
+data/static/commute-covers/*
+!data/static/commute-covers/*.svg
 *.sqlite3
 .DS_Store
 # Per-textbook Aliyun packages are generated locally and can be regenerated.
 sql/deploy/generated/
+# Source PDFs and rendered contacts are local authoring inputs, not runtime
+# assets. Keep them out of deployment commits.
+lecture/
+tmp/
+issue-upload.md

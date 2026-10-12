@@ -56,5 +56,8 @@ def study_time(
     user: User,
     start_date: date | None = Query(default=None),
     end_date: date | None = Query(default=None),
+    include_days: bool = Query(default=True),
 ):
-    return LearningStudySessionService(db).time_summary(user["id"], start_date, end_date)
+    return LearningStudySessionService(db).time_summary(
+        user["id"], start_date, end_date, include_days=include_days
+    )

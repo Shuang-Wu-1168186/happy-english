@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -9,6 +10,16 @@ Role = Literal["user", "learner", "premium_learner", "volunteer", "leader", "adm
 
 class Input(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+def valid_private_zone_target_url(value: str):
+    target = value.strip()
+    if target.startswith("/") and not target.startswith("//"):
+        return target
+    parsed = urlparse(target)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return target
+    raise ValueError("Use a HappyEnglish path beginning with / or an HTTP(S) URL.")
 
 
 class Credentials(BaseModel):
@@ -212,6 +223,92 @@ class TTSInput(Input):
 
 class NoteTTSInput(Input):
     item_id: int = Field(gt=0)
+
+
+class FamilyGroupInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class FamilyGroupMemberInput(Input):
+    user_id: int | None = Field(default=None, gt=0)
+    username: str = Field(default="", max_length=100)
+    role: Literal["member", "admin"] = "member"
+
+
+class FamilyGroupJoinInput(Input):
+    invite_code: str = Field(min_length=6, max_length=32)
+
+
+class PrivateZoneFeatureInput(Input):
+    title: str = Field(min_length=1, max_length=120)
+    title_en: str = Field(default="", max_length=120)
+    description: str = Field(default="", max_length=500)
+    icon: str = Field(default="", max_length=32)
+    route_key: str = Field(min_length=1, max_length=100)
+    target_url: str = Field(min_length=1, max_length=1000)
+    config: dict[str, Any] = Field(default_factory=dict)
+    sort_order: int = 0
+    is_enabled: Literal[0, 1] = 1
+
+    @field_validator("target_url")
+    @classmethod
+    def valid_target_url(cls, value):
+        return valid_private_zone_target_url(value)
+
+
+class PrivateZoneItemInput(Input):
+    scope_type: Literal["personal", "family"]
+    family_group_id: int | None = Field(default=None, gt=0)
+    resource_type: Literal["material", "course", "note", "note_item"]
+    resource_id: int = Field(gt=0)
+    label: str = Field(default="", max_length=255)
+    sort_order: int = 0
+
+
+class PrivateZoneNoteInput(Input):
+    note_date: date
+    title: str = Field(min_length=1, max_length=200)
+    source: str = Field(default="", max_length=100)
+    summary: str = Field(default="", max_length=20000)
+    scope_type: Literal["personal", "family"]
+    family_group_id: int | None = Field(default=None, gt=0)
+    priority_order: int = 0
+
+
+class PrivateZoneNoteItemInput(Input):
+    item_type: str = Field(default="knowledge", min_length=1, max_length=50)
+    item_title: str = Field(min_length=1, max_length=255)
+    raw_text: str = Field(min_length=1, max_length=50000)
+    english_text: str = Field(min_length=1, max_length=50000)
+    chinese_text: str = Field(min_length=1, max_length=50000)
+    explanation: str = Field(default="", max_length=50000)
+    examples: str = Field(default="", max_length=50000)
+    example_image_url: str = Field(default="", max_length=500)
+    example_image_alt: str = Field(default="", max_length=255)
+    keywords: str = Field(default="", max_length=500)
+    priority_order: int = 0
+
+
+class PrivateZoneShortcutInput(Input):
+    family_group_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=120)
+    target_url: str = Field(min_length=1, max_length=1000)
+    description: str = Field(default="", max_length=500)
+    icon: str = Field(default="", max_length=32)
+    sort_order: int = 0
+
+    @field_validator("target_url")
+    @classmethod
+    def valid_target_url(cls, value):
+        return valid_private_zone_target_url(value)
+
+
+class PersonalNoteInput(Input):
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(default="", max_length=50000)
+    tags: str = Field(default="", max_length=500)
+    color: str = Field(default="", max_length=32)
+    is_pinned: Literal[0, 1] = 0
 
 
 class LearningModuleInput(Input):

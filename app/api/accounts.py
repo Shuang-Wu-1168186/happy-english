@@ -48,7 +48,18 @@ def session_info(request: Request, response: Response, db: Db):
             if error.status_code != 401:
                 raise
     csrf = request.state.session.get("csrf")
-    if not csrf or (request.state.session.get("uid") and not user):
+    if user:
+        # Renew a valid signed session whenever the client restores it.  Keep
+        # the existing CSRF token so parallel page loads do not invalidate a
+        # mutation already being prepared by the client.
+        csrf = issue_session(
+            response,
+            request.app.state.settings,
+            user,
+            auth_method=request.state.session.get("auth_method"),
+            csrf_token=csrf,
+        )
+    elif not csrf or request.state.session.get("uid"):
         csrf = issue_session(
             response,
             request.app.state.settings,

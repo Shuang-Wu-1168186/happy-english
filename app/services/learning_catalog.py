@@ -82,6 +82,13 @@ MATERIAL_TEMPLATE_DEFINITIONS = {
         "content_kind": "source",
         "source_resources": ("interviews",),
     },
+    "mind-map": {
+        "version": 1,
+        "name": "思维导图课件",
+        "description": "按中心词和关联分支展示 KET 词汇关系图。",
+        "content_kind": "source",
+        "source_resources": None,
+    },
 }
 
 DEFAULT_TEMPLATE_BY_MATERIAL_TYPE = {
@@ -93,6 +100,7 @@ DEFAULT_TEMPLATE_BY_MATERIAL_TYPE = {
     "phonics": "phonics",
     "interview": "interview",
     "exam": "interview",
+    "mind_map": "mind-map",
 }
 
 
@@ -725,6 +733,7 @@ class LearningCatalogService:
         material_id,
         include_content=False,
         unlocked_lesson_count=None,
+        unlocked_lesson_ids=None,
     ):
         material = self.materials.require_any(material_id)
         template = self._template_for_material(material)
@@ -733,7 +742,14 @@ class LearningCatalogService:
             self._lesson_view(
                 row,
                 include_content=include_content,
-                is_locked=(unlocked_lesson_count is not None and index >= unlocked_lesson_count),
+                is_locked=(
+                    row["id"] not in unlocked_lesson_ids
+                    if unlocked_lesson_ids is not None
+                    else (
+                        unlocked_lesson_count is not None
+                        and index >= unlocked_lesson_count
+                    )
+                ),
                 template=template,
             )
             for index, row in enumerate(rows)
@@ -941,6 +957,7 @@ class LearningCatalogService:
         course_id,
         include_lesson_content=False,
         unlocked_lesson_count=None,
+        unlocked_lesson_ids=None,
     ):
         course = self.courses.require_public(course_id)
         if not self._course_topic_rows(course_id, published_only=True):
@@ -962,8 +979,12 @@ class LearningCatalogService:
                     lesson,
                     include_content=include_lesson_content,
                     is_locked=(
-                        unlocked_lesson_count is not None
-                        and lesson_index >= unlocked_lesson_count
+                        lesson["id"] not in unlocked_lesson_ids
+                        if unlocked_lesson_ids is not None
+                        else (
+                            unlocked_lesson_count is not None
+                            and lesson_index >= unlocked_lesson_count
+                        )
                     ),
                     template=material_view["template"],
                 )

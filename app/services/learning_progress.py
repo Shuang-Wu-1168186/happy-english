@@ -210,8 +210,10 @@ class LearningStudySessionService:
     def list_for_user(self, user_id):
         return {"items": [dict(row) for row in self.dao.list_for_user(user_id)]}
 
-    def time_summary(self, user_id, start_date=None, end_date=None):
-        result = self.dao.time_summary(user_id, start_date, end_date)
+    def time_summary(self, user_id, start_date=None, end_date=None, include_days=True):
+        result = self.dao.time_summary(
+            user_id, start_date, end_date, include_days=include_days
+        )
         return {**result, "days": [dict(row) for row in result["days"]]}
 
 

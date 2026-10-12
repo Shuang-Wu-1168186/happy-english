@@ -45,6 +45,23 @@ def test_header_session_supports_miniprogram_login_without_cookie(client):
     )
 
 
+def test_authenticated_session_restore_renews_header_and_keeps_csrf(client):
+    headers = sign_in(client)
+    original_csrf = headers["X-CSRF-Token"]
+    signed_header = client.cookies.get(COOKIE)
+    client.cookies.clear()
+
+    restored = client.get("/api/auth/session", headers={SESSION_HEADER: signed_header})
+
+    assert restored.status_code == 200
+    assert restored.json()["user"]["username"] == "admin_test"
+    assert restored.json()["csrf_token"] == original_csrf
+    assert restored.headers[SESSION_HEADER]
+    renewed = serializer(client.app.state.settings).loads(restored.headers[SESSION_HEADER])
+    assert renewed["uid"] == 1
+    assert renewed["csrf"] == original_csrf
+
+
 def test_miniprogram_phone_login_creates_user_and_uses_header_session(client):
     session = client.get("/api/auth/session")
     client.cookies.clear()
@@ -202,6 +219,34 @@ def test_filter_pagination_and_auth_permissions(client):
         == 403
     )
     assert client.get("/api/content/user").status_code == 404
+
+
+def test_kids_cards_follow_editorial_priority_order(client):
+    sign_in(client, "learner_test")
+    with client.app.state.engine.begin() as connection:
+        connection.execute(
+            m.kids_english_card.update()
+            .where(m.kids_english_card.c.id == 1)
+            .values(priority_order=2)
+        )
+        connection.execute(
+            m.kids_english_card.insert(),
+            {
+                "id": 2,
+                "word": "northeast",
+                "translation": "东北部",
+                "category": "Unit 1 · 1",
+                "priority_order": 1,
+            },
+        )
+
+    response = client.get("/api/content/kids-cards?page_size=100")
+
+    assert response.status_code == 200
+    assert [card["word"] for card in response.json()["items"]] == [
+        "northeast",
+        "apple",
+    ]
 
 
 def test_note_item_frequency_is_per_user_and_visible_on_note_cards(client):

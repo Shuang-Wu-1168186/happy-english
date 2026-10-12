@@ -24,11 +24,13 @@ mysql_database="${MYSQL_DATABASE:?Set MYSQL_DATABASE}"
 mysql_port="${MYSQL_PORT:-3306}"
 finalize=false
 postflight=true
+post_content=false
 
 for argument in "$@"; do
   case "$argument" in
     --finalize) finalize=true ;;
     --skip-postflight) postflight=false ;;
+    --post-content) post_content=true ;;
     *)
       echo "Unknown option: $argument" >&2
       exit 2
@@ -288,7 +290,44 @@ else
   run_once "20261006-note-item-frequency" "sql/20261006_add_note_item_frequency.sql"
 fi
 
+# Private-zone migrations are deliberately kept before the catalogue package:
+# they add independent personal/family tables and do not overwrite catalogue
+# rows.  The later shortcut migration has an unconditional ALTER, so an older
+# server that already received it without a release ledger is marked instead
+# of trying to add its scope column a second time.
+run_once "20261009-private-zone-family-sharing" "sql/20261009_add_private_zone_family_sharing.sql"
+run_once "20261010-family-group-invite-code" "sql/20261010_add_family_group_invite_code.sql"
+run_once "20261010-private-zone-personal-tools" "sql/20261010_add_private_zone_personal_tools.sql"
+
+if has_column "private_zone_shortcut" "scope_type"; then
+  mark_existing "20261010-private-zone-shortcut-scope"
+else
+  run_once "20261010-private-zone-shortcut-scope" "sql/20261010_move_private_zone_shortcuts_to_admin.sql"
+fi
+
+run_once "20261010-restore-original-private-zone-shortcuts" "sql/20261010_restore_original_private_zone_shortcuts.sql"
+run_once "20261010-restore-personal-shortcuts" "sql/20261010_restore_personal_shortcuts_and_publish_features.sql"
+run_once "20261010-private-zone-family-shortcuts" "sql/20261010_make_private_zone_shortcuts_family_shared.sql"
+
 run_once "20261005-cleanup-empty-duplicate-topics" "sql/deploy/20261005_cleanup_empty_duplicate_topics.sql"
+
+# These updates target catalogue records.  Run them only after the generated
+# content package has been imported, otherwise a first release could mark an
+# update complete before its target courses or lessons exist.
+if [[ "$post_content" == true ]]; then
+  run_once "20261010-seed-admin-private-zone-content" "sql/20261010_seed_admin_private_zone_content.sql"
+  run_once "20261010-fix-primary-textbook-shortcut" "sql/20261010_fix_primary_english_textbook_shortcut.sql"
+  run_once "20261010-publish-primary-textbook-reader" "sql/20261010_publish_primary_textbook_reader.sql"
+  run_once "20261010-add-travel-lesson-icons" "sql/20261010_add_travel_lesson_icons.sql"
+  run_once "20261010-configure-travel-membership" "sql/20261010_configure_travel_english_membership_access.sql"
+  run_once "20261011-add-shopping-lesson-icons" "sql/20261011_add_shopping_lesson_icons.sql"
+  run_once "20261011-configure-commute-membership" "sql/20261011_configure_commute_english_membership_access.sql"
+  run_once "20261011-configure-everyday-activities-membership" "sql/20261011_configure_everyday_activities_english_membership_access.sql"
+  run_once "20261011-configure-shopping-membership" "sql/20261011_configure_shopping_english_membership_access.sql"
+  run_once "20261011-configure-software-workplace-membership" "sql/20261011_configure_software_workplace_english_membership_access.sql"
+else
+  echo "[info] Catalogue-dependent configuration is pending. Re-run with --post-content after importing the generated content package."
+fi
 
 if [[ "$finalize" == true ]]; then
   if has_table "daily_spoken_dialogue_item"; then
