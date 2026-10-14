@@ -137,6 +137,16 @@ FROM `learning_material_lesson`
 WHERE `source_resource` = 'dialogues';
 
 SELECT
+    COUNT(*) AS `textbook_lessons_missing_source`
+FROM `learning_material_lesson` AS `lesson`
+LEFT JOIN `english_textbook_lesson` AS `source`
+  ON `source`.`id` = `lesson`.`source_reference_id`
+ AND `source`.`is_published` = 1
+WHERE `lesson`.`source_resource` = 'textbook'
+  AND `lesson`.`source_reference_id` IS NOT NULL
+  AND `source`.`id` IS NULL;
+
+SELECT
     table_name AS `legacy_table`,
     CASE WHEN table_name IS NULL THEN 'removed' ELSE 'still present (expected before --finalize)' END AS `state`
 FROM information_schema.tables

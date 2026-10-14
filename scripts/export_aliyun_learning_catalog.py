@@ -426,6 +426,8 @@ def catalogue_tables(
         "illustration_url",
         "source_resource",
         "source_reference_id",
+        "textbook_unit_name",
+        "textbook_lesson_name",
         "content_json",
         "lesson_format",
         "lesson_schema_version",
@@ -468,6 +470,34 @@ def catalogue_tables(
             .order_by(m.learning_material.c.material_code, m.learning_material_lesson.c.sort_order),
         )
     ]
+    textbook_source_ids = {
+        row["source_reference_id"]
+        for row in lessons
+        if row["source_resource"] == "textbook" and row["source_reference_id"] is not None
+    }
+    if textbook_source_ids:
+        textbook_sources = {
+            row["id"]: row
+            for row in select_rows(
+                connection,
+                select(
+                    m.english_textbook_lesson.c.id,
+                    m.english_textbook_lesson.c.unit_name,
+                    m.english_textbook_lesson.c.lesson_name,
+                ).where(m.english_textbook_lesson.c.id.in_(textbook_source_ids)),
+            )
+        }
+        for lesson in lessons:
+            if lesson["source_resource"] != "textbook":
+                continue
+            source = textbook_sources.get(lesson["source_reference_id"])
+            if source is None:
+                raise RuntimeError(
+                    "Cannot export a textbook lesson whose source record is unavailable: "
+                    f"{lesson['material_code']}/{lesson['lesson_code']}"
+                )
+            lesson["textbook_unit_name"] = source["unit_name"]
+            lesson["textbook_lesson_name"] = source["lesson_name"]
 
     section_fields = (
         "material_code",
@@ -1044,6 +1074,8 @@ def catalogue_tables(
                 ("illustration_url", "VARCHAR(500) NULL"),
                 ("source_resource", "VARCHAR(80) NULL"),
                 ("source_reference_id", "BIGINT UNSIGNED NULL"),
+                ("textbook_unit_name", "VARCHAR(100) NULL"),
+                ("textbook_lesson_name", "VARCHAR(100) NULL"),
                 ("content_json", "LONGTEXT NULL"),
                 ("lesson_format", "VARCHAR(50) NOT NULL"),
                 ("lesson_schema_version", "INT NOT NULL"),
@@ -1339,11 +1371,15 @@ def emit_target_upserts(
             "INSERT INTO `learning_material_lesson`",
             "(`material_id`,`lesson_code`,`title`,`title_en`,`summary`,`illustration_url`,`source_resource`,`source_reference_id`,`content_json`,`lesson_format`,`lesson_schema_version`,`content_status`,`published_at`,`estimated_minutes`,`sort_order`,`is_published`,`created_by`,`created_at`,`updated_by`,`updated_at`)",
             "SELECT `material`.`id`, `source`.`lesson_code`, `source`.`title`, `source`.`title_en`, `source`.`summary`, `source`.`illustration_url`,",
-            "       `source`.`source_resource`, `source`.`source_reference_id`, `source`.`content_json`, `source`.`lesson_format`,",
+            "       `source`.`source_resource`, CASE WHEN `source`.`source_resource` = 'textbook' THEN `textbook_source`.`id` ELSE `source`.`source_reference_id` END, `source`.`content_json`, `source`.`lesson_format`,",
             "       `source`.`lesson_schema_version`, `source`.`content_status`, `source`.`published_at`, `source`.`estimated_minutes`,",
             "       `source`.`sort_order`, `source`.`is_published`, @release_actor_id, `source`.`created_at`, @release_actor_id, `source`.`updated_at`",
             "FROM `tmp_release_lessons` AS `source`",
             "JOIN `learning_material` AS `material` ON `material`.`material_code` = `source`.`material_code`",
+            "LEFT JOIN `english_textbook_lesson` AS `textbook_source`",
+            "  ON `source`.`source_resource` = 'textbook'",
+            " AND `textbook_source`.`unit_name` = `source`.`textbook_unit_name`",
+            " AND `textbook_source`.`lesson_name` = `source`.`textbook_lesson_name`",
             "ON DUPLICATE KEY UPDATE",
             "  `title`=VALUES(`title`), `title_en`=VALUES(`title_en`), `summary`=VALUES(`summary`),",
             "  `illustration_url`=VALUES(`illustration_url`), `source_resource`=VALUES(`source_resource`),",

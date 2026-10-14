@@ -318,6 +318,7 @@ if [[ "$post_content" == true ]]; then
   run_once "20261010-seed-admin-private-zone-content" "sql/20261010_seed_admin_private_zone_content.sql"
   run_once "20261010-fix-primary-textbook-shortcut" "sql/20261010_fix_primary_english_textbook_shortcut.sql"
   run_once "20261010-publish-primary-textbook-reader" "sql/20261010_publish_primary_textbook_reader.sql"
+  run_once "20261014-repair-primary-textbook-source-references" "sql/20261014_repair_primary_textbook_source_references.sql"
   run_once "20261010-add-travel-lesson-icons" "sql/20261010_add_travel_lesson_icons.sql"
   run_once "20261010-configure-travel-membership" "sql/20261010_configure_travel_english_membership_access.sql"
   run_once "20261011-add-shopping-lesson-icons" "sql/20261011_add_shopping_lesson_icons.sql"
