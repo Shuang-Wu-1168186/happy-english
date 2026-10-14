@@ -885,7 +885,7 @@ class LearningCatalogService:
         from app.services.membership import MembershipService
 
         return MembershipService(self.db).user_courses.material_access(
-            user["id"], material_id
+            user, material_id
         )
 
     def get_material(self, material_id, include_lesson_content=False, user=None):

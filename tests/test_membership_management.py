@@ -240,6 +240,40 @@ def test_membership_course_previews_two_lessons_and_locks_the_rest(client):
     assert course.status_code == 201
     course_id = course.json()["id"]
 
+    # Administrators can verify published member-only textbooks without an
+    # assigned member plan. Learners still follow the preview rules below.
+    admin_material = client.get(
+        f"/api/learning/materials/{material_id}?include_lesson_content=true",
+        headers=admin_headers,
+    )
+    assert admin_material.status_code == 200
+    assert admin_material.json()["access_state"] == "available"
+    assert [lesson["is_locked"] for lesson in admin_material.json()["lessons"]] == [
+        False,
+        False,
+        False,
+    ]
+    assert "content" in admin_material.json()["lessons"][2]
+
+    admin_opened = client.post(
+        f"/api/learning/courses/{course_id}/open", headers=admin_headers
+    )
+    assert admin_opened.status_code == 200
+    assert admin_opened.json()["access_state"] == "available"
+    assert all(not lesson["is_locked"] for lesson in admin_opened.json()["lessons"])
+
+    admin_my_courses = client.get("/api/learning/my-courses", headers=admin_headers)
+    assert admin_my_courses.status_code == 200
+    assert admin_my_courses.json()["items"][0]["access_state"] == "available"
+
+    admin_progress = client.post(
+        "/api/learning/progress",
+        headers=admin_headers,
+        json={"course_id": course_id, "total_item_count": 3},
+    )
+    assert admin_progress.status_code == 200
+    assert admin_progress.json()["course_id"] == course_id
+
     learner_headers = sign_in(client, "learner_test")
     preview = client.post(f"/api/learning/courses/{course_id}/open", headers=learner_headers)
     assert preview.status_code == 200

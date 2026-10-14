@@ -121,17 +121,24 @@ class LearningUserCourseService(MembershipTableService):
         self.plan_benefits = MembershipPlanBenefitService(db)
         self.benefit_courses = MembershipBenefitCourseService(db)
 
-    def course_access(self, user_id, course):
-        """Resolve current access without persisting a duplicate entitlement flag."""
+    def course_access(self, user, course):
+        """Resolve current access without persisting a duplicate entitlement flag.
+
+        Administrators can study every published course so they can verify the
+        learner experience they manage. This bypass happens after the
+        publication check, which keeps draft content off learner-facing routes.
+        """
         if course["is_published"] != 1:
             return {"access_state": "unavailable", "membership_id": None}
+        if user["role"] == "admin":
+            return {"access_state": "available", "membership_id": None}
         if course["access_policy"] == "free":
             return {"access_state": "available", "membership_id": None}
 
         benefit_ids = self.benefit_courses.dao.enabled_benefit_ids_for_course(course["id"])
         if not benefit_ids:
             return {"access_state": "locked", "membership_id": None}
-        memberships = self.user_memberships.dao.active_for_user(user_id)
+        memberships = self.user_memberships.dao.active_for_user(user["id"])
         granted_ids = set(
             self.plan_benefits.dao.enabled_benefit_ids_for_plans(
                 [row["membership_plan_id"] for row in memberships],
@@ -205,7 +212,7 @@ class LearningUserCourseService(MembershipTableService):
                 )
         return set(lesson_ids[:FREE_PREVIEW_LESSON_COUNT])
 
-    def material_access(self, user_id, material_id):
+    def material_access(self, user, material_id):
         """Resolve lesson access when a learner enters through a material.
 
         The public catalogue now opens a material directly, while membership
@@ -228,7 +235,7 @@ class LearningUserCourseService(MembershipTableService):
             if not any(row["id"] == material_id for row in material_rows):
                 continue
             linked_courses.append(course)
-            access = self.course_access(user_id, course)
+            access = self.course_access(user, course)
             if course["access_policy"] == "benefit":
                 has_membership_course = True
             if access["access_state"] == "available":
@@ -264,7 +271,7 @@ class LearningUserCourseService(MembershipTableService):
 
     def enroll(self, user, course_id):
         course = self.courses.require_public(course_id)
-        access = self.course_access(user["id"], course)
+        access = self.course_access(user, course)
         if access["access_state"] != "available":
             raise HTTPException(403, "This course requires an active membership benefit.")
         existing = self.dao.find_for_user_course(user["id"], course_id)
@@ -293,9 +300,9 @@ class LearningUserCourseService(MembershipTableService):
         self.db.commit()
         return {**serialise_membership(row), **access}
 
-    def list_for_user(self, user_id):
+    def list_for_user(self, user):
         items = []
-        for row in self.dao.list_for_user(user_id):
+        for row in self.dao.list_for_user(user["id"]):
             course = {
                 "id": row["course_id"],
                 "is_published": row["course_is_published"],
@@ -311,7 +318,7 @@ class LearningUserCourseService(MembershipTableService):
                     "materials": summary["materials"],
                     "material_titles": summary.get("material_titles", ""),
                     "material_title": summary.get("material_title"),
-                    **self.course_access(user_id, course),
+                    **self.course_access(user, course),
                 }
             )
         return {"items": items}
@@ -638,14 +645,14 @@ class MembershipService:
         return self.user_courses.enroll(user, course_id)
 
     def list_my_courses(self, user):
-        return self.user_courses.list_for_user(user["id"])
+        return self.user_courses.list_for_user(user)
 
     def archive_my_course(self, user, course_id):
         self.user_courses.archive(user["id"], course_id)
 
     def open_course(self, user, course_id):
         course = self.user_courses.courses.require_public(course_id)
-        access = self.user_courses.course_access(user["id"], course)
+        access = self.user_courses.course_access(user, course)
         catalog = LearningCatalogService(self.db)
 
         if access["access_state"] == "available":

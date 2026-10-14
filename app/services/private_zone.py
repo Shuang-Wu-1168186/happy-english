@@ -525,7 +525,7 @@ class PrivateZoneService:
             return {
                 **dict(row),
                 "resource_type": resource_type,
-                "access": self.user_courses.material_access(user["id"], resource_id),
+                "access": self.user_courses.material_access(user, resource_id),
             }
         if resource_type == "course":
             row = self.courses.get_published(resource_id)
@@ -534,7 +534,7 @@ class PrivateZoneService:
             return {
                 **dict(row),
                 "resource_type": resource_type,
-                "access": self.user_courses.course_access(user["id"], row),
+                "access": self.user_courses.course_access(user, row),
             }
         if resource_type == "note":
             row = self._require_note_access(

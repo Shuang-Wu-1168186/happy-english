@@ -39,7 +39,7 @@ class LearningProgressService:
             # module-level circular imports.
             from app.services.membership import LearningUserCourseService
 
-            access = LearningUserCourseService(self.db).course_access(user["id"], course)
+            access = LearningUserCourseService(self.db).course_access(user, course)
             if access["access_state"] != "available":
                 raise HTTPException(403, "This course requires an active membership benefit.")
         return course
