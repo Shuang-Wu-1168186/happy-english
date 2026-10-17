@@ -319,6 +319,7 @@ if [[ "$post_content" == true ]]; then
   run_once "20261010-fix-primary-textbook-shortcut" "sql/20261010_fix_primary_english_textbook_shortcut.sql"
   run_once "20261010-publish-primary-textbook-reader" "sql/20261010_publish_primary_textbook_reader.sql"
   run_once "20261014-repair-primary-textbook-source-references" "sql/20261014_repair_primary_textbook_source_references.sql"
+  run_once "20261017-deduplicate-primary-textbook-material-lessons" "sql/20261017_deduplicate_primary_textbook_material_lessons.sql"
   run_once "20261010-add-travel-lesson-icons" "sql/20261010_add_travel_lesson_icons.sql"
   run_once "20261010-configure-travel-membership" "sql/20261010_configure_travel_english_membership_access.sql"
   run_once "20261011-add-shopping-lesson-icons" "sql/20261011_add_shopping_lesson_icons.sql"
