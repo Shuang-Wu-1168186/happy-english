@@ -1416,8 +1416,8 @@ def source_page_lesson(
     return ImportedMapLesson(
         page=parsed_page.page,
         source_pages=lesson_source_pages,
-        title_en=f"Word List · {parsed_page.page}",
-        title_zh=f"{chapter.title_zh} · 第 {parsed_page.page} 页",
+        title_en="Extra Vocabulary",
+        title_zh="扩展单词",
         center_label=chapter.title_en,
         center_zh=chapter.title_zh,
         center_emoji=CHAPTER_EMOJIS[chapter.number - 1],
@@ -1895,7 +1895,7 @@ def upsert_chapter_catalogue(
             material["id"],
             s.LearningMaterialLessonInput(
                 lesson_code=lesson_code,
-                title=f"{map_lesson.title_zh} · {'单词清单' if is_word_list else '词汇图'}",
+                title="扩展单词" if is_word_list else f"{map_lesson.title_zh} · 词汇图",
                 title_en=map_lesson.title_en,
                 summary="",
                 lesson_format="source",

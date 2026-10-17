@@ -71,6 +71,16 @@ def test_pdf_page_lesson_builds_an_interactive_map_without_a_unit_center():
     assert all("prompt" not in branch for branch in mind_map["branches"])
 
 
+def test_word_list_uses_a_general_title_without_the_source_page_number():
+    lesson = importer.source_page_lesson(
+        importer.ParsedPage(chapter(), 14, (), 0, 0)
+    )
+
+    assert lesson.presentation == "word-list"
+    assert lesson.title_en == "Extra Vocabulary"
+    assert lesson.title_zh == "扩展单词"
+
+
 @pytest.mark.skipif(not importer.PDF_PATH.is_file(), reason="KET source PDF is not present")
 def test_unit4_rebuilds_home_room_and_description_maps_from_vocabulary_data():
     _, pages = importer.parse_pdf()
@@ -83,9 +93,9 @@ def test_unit4_rebuilds_home_room_and_description_maps_from_vocabulary_data():
     ] == [
         (25, "mind-map", "Home", "home", 15),
         (26, "mind-map", "Room", "room", 41),
-        (27, "word-list", "Word List · 27", "Describing one's Home", 23),
+        (27, "word-list", "Extra Vocabulary", "Describing one's Home", 23),
         (28, "mind-map", "Common Descriptions", "描述词", 11),
-        (29, "word-list", "Word List · 29", "Describing one's Home", 11),
+        (29, "word-list", "Extra Vocabulary", "Describing one's Home", 11),
     ]
 
     source_pages = {page.page: page for page in chapter_pages}
