@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.engine import Connection, Engine
 
 from app import models as m
@@ -45,14 +45,6 @@ class TextbookLesson:
     sentences: tuple[Sentence, ...]
     unit_name: str = "Unit 3"
     unit_order: int = 3
-
-    @property
-    def catalog_lesson_code(self) -> str:
-        return f"textbook-unit-{self.unit_order:02d}-lesson-{self.lesson_order:02d}"
-
-    @property
-    def catalog_sort_order(self) -> int:
-        return self.unit_order * 100 + self.lesson_order
 
 
 UNIT3_LESSONS = (
@@ -360,13 +352,21 @@ def _one_catalogue_lesson(
     return dict(rows[0]) if rows else None
 
 
+def _catalogue_lesson_code(source: dict) -> str:
+    return (
+        f"textbook-unit-{int(source['unit_order']):02d}-"
+        f"lesson-{int(source['lesson_order']):02d}"
+    )
+
+
 def _upsert_catalogue_lesson(
     connection: Connection,
     material_id: int,
-    lesson: TextbookLesson,
-    source_id: int,
+    source: dict,
     report: dict[str, int],
 ) -> None:
+    lesson_code = _catalogue_lesson_code(source)
+    source_id = int(source["id"])
     source_match = _one_catalogue_lesson(
         connection,
         (
@@ -374,27 +374,34 @@ def _upsert_catalogue_lesson(
             & (m.learning_material_lesson.c.source_resource == SOURCE_RESOURCE)
             & (m.learning_material_lesson.c.source_reference_id == source_id)
         ),
-        f"{lesson.unit_name} / {lesson.lesson_name} source",
+        f"{source['unit_name']} / {source['lesson_name']} source",
     )
     code_match = _one_catalogue_lesson(
         connection,
         (
             (m.learning_material_lesson.c.material_id == material_id)
-            & (m.learning_material_lesson.c.lesson_code == lesson.catalog_lesson_code)
+            & (m.learning_material_lesson.c.lesson_code == lesson_code)
         ),
-        f"{lesson.catalog_lesson_code} code",
+        f"{lesson_code} code",
     )
     if source_match is not None and code_match is not None and source_match["id"] != code_match["id"]:
         raise RuntimeError(
-            f"Conflicting textbook catalogue entries found for {lesson.unit_name} / {lesson.lesson_name}."
+            "Conflicting textbook catalogue entries found for "
+            f"{source['unit_name']} / {source['lesson_name']}."
         )
 
     existing = source_match or code_match
+    source_title = str(source["title"] or "")
+    source_title_cn = str(
+        source["title_cn"]
+        or source_title
+        or f"{source['unit_name']} · {source['lesson_name']}"
+    )
     catalogue_values = {
-        "lesson_code": lesson.catalog_lesson_code,
-        "title": lesson.title_cn,
-        "title_en": lesson.title,
-        "summary": lesson.summary,
+        "lesson_code": lesson_code,
+        "title": source_title_cn,
+        "title_en": source_title or None,
+        "summary": source["summary"],
         "illustration_url": None,
         "source_resource": SOURCE_RESOURCE,
         "source_reference_id": source_id,
@@ -403,7 +410,7 @@ def _upsert_catalogue_lesson(
         "lesson_schema_version": 1,
         "content_status": "published",
         "estimated_minutes": ESTIMATED_MINUTES_PER_LESSON,
-        "sort_order": lesson.catalog_sort_order,
+        "sort_order": int(source["unit_order"]) * 100 + int(source["lesson_order"]),
         "is_published": 1,
     }
     if existing is None:
@@ -424,8 +431,32 @@ def _upsert_catalogue_lesson(
     report["catalogue_lessons_updated"] += 1
 
 
+def _sync_primary_textbook_catalogue(
+    connection: Connection,
+    material_id: int,
+    report: dict[str, int],
+) -> int:
+    """Keep every catalogue row ordered from its authoritative source lesson."""
+
+    sources = [
+        dict(row)
+        for row in connection.execute(
+            select(m.english_textbook_lesson)
+            .where(m.english_textbook_lesson.c.is_published == 1)
+            .order_by(
+                m.english_textbook_lesson.c.unit_order,
+                m.english_textbook_lesson.c.lesson_order,
+                m.english_textbook_lesson.c.id,
+            )
+        ).mappings()
+    ]
+    for source in sources:
+        _upsert_catalogue_lesson(connection, material_id, source, report)
+    return len(sources)
+
+
 def import_unit3(engine: Engine) -> dict[str, int]:
-    """Upsert all four Unit 3 lessons and their matching catalogue rows."""
+    """Upsert all four Unit 3 lessons and synchronise the textbook catalogue."""
 
     report = {
         "source_lessons_created": 0,
@@ -445,19 +476,14 @@ def import_unit3(engine: Engine) -> dict[str, int]:
             raise RuntimeError(f"Learning material {MATERIAL_CODE!r} does not exist.")
 
         for lesson in UNIT3_LESSONS:
-            source_id = _upsert_source_lesson(connection, lesson, report)
-            _upsert_catalogue_lesson(connection, int(material_id), lesson, source_id, report)
+            _upsert_source_lesson(connection, lesson, report)
 
-        material_minutes = int(
-            connection.execute(
-                select(func.count())
-                .select_from(m.learning_material_lesson)
-                .where(
-                    m.learning_material_lesson.c.material_id == material_id,
-                    m.learning_material_lesson.c.is_published == 1,
-                )
-            ).scalar_one()
-        ) * ESTIMATED_MINUTES_PER_LESSON
+        textbook_lesson_count = _sync_primary_textbook_catalogue(
+            connection,
+            int(material_id),
+            report,
+        )
+        material_minutes = textbook_lesson_count * ESTIMATED_MINUTES_PER_LESSON
         connection.execute(
             update(m.learning_material)
             .where(m.learning_material.c.id == material_id)

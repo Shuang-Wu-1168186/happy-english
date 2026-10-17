@@ -1,4 +1,4 @@
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from app import models as m
 from scripts import import_primary_textbook_unit3 as importer
@@ -8,6 +8,12 @@ from tests.support import sample_engine
 def _engine_with_textbook_material():
     engine = sample_engine()
     with engine.begin() as connection:
+        connection.execute(
+            delete(m.english_textbook_sentence).where(m.english_textbook_sentence.c.lesson_id == 1)
+        )
+        connection.execute(
+            delete(m.english_textbook_lesson).where(m.english_textbook_lesson.c.id == 1)
+        )
         connection.execute(
             m.learning_material.insert().values(
                 id=101,
@@ -128,9 +134,64 @@ def test_import_unit3_creates_bilingual_source_and_catalogue_entries():
         ]
 
 
-def test_import_unit3_reuses_source_linked_catalogue_lesson_and_removes_stale_sentence():
+def test_import_unit3_normalises_existing_catalogue_rows_and_removes_stale_sentence():
     engine = _engine_with_textbook_material()
-    importer.import_unit3(engine)
+    with engine.begin() as connection:
+        connection.execute(
+            m.english_textbook_lesson.insert(),
+            [
+                {
+                    "id": 41,
+                    "unit_name": "Unit 1",
+                    "lesson_name": "Lesson 4",
+                    "title": "The Children’s Summer Stories",
+                    "title_cn": "孩子们的暑假故事",
+                    "summary": "暑假故事。",
+                    "unit_order": 1,
+                    "lesson_order": 4,
+                },
+                {
+                    "id": 42,
+                    "unit_name": "Unit 2",
+                    "lesson_name": "Lesson 7",
+                    "title": "Fire Safety",
+                    "title_cn": "消防安全",
+                    "summary": "消防安全知识。",
+                    "unit_order": 2,
+                    "lesson_order": 7,
+                },
+            ],
+        )
+        connection.execute(
+            m.learning_material_lesson.insert(),
+            [
+                {
+                    "material_id": 101,
+                    "lesson_code": "textbook-lesson-4",
+                    "title": "旧的第二课标题",
+                    "title_en": "Old lesson two",
+                    "summary": "旧摘要",
+                    "source_resource": "textbook",
+                    "source_reference_id": 41,
+                    "sort_order": 102,
+                },
+                {
+                    "material_id": 101,
+                    "lesson_code": "textbook-lesson-7",
+                    "title": "旧的第三课标题",
+                    "title_en": "Old lesson three",
+                    "summary": "旧摘要",
+                    "source_resource": "textbook",
+                    "source_reference_id": 42,
+                    "sort_order": 103,
+                },
+            ],
+        )
+
+    first_report = importer.import_unit3(engine)
+    assert first_report["catalogue_lessons_created"] == 4
+    assert first_report["catalogue_lessons_updated"] == 2
+    assert first_report["material_estimated_minutes"] == 90
 
     with engine.begin() as connection:
         lesson_9_id = connection.execute(
@@ -174,8 +235,30 @@ def test_import_unit3_reuses_source_linked_catalogue_lesson_and_removes_stale_se
                 m.learning_material_lesson.c.source_reference_id == lesson_9_id,
             )
         ).scalar_one() == "textbook-unit-03-lesson-09"
+        normalised_rows = connection.execute(
+            select(
+                m.learning_material_lesson.c.lesson_code,
+                m.learning_material_lesson.c.title,
+                m.learning_material_lesson.c.title_en,
+                m.learning_material_lesson.c.sort_order,
+            )
+            .where(
+                m.learning_material_lesson.c.material_id == 101,
+                m.learning_material_lesson.c.source_reference_id.in_([41, 42]),
+            )
+            .order_by(m.learning_material_lesson.c.sort_order)
+        ).all()
+        assert normalised_rows == [
+            (
+                "textbook-unit-01-lesson-04",
+                "孩子们的暑假故事",
+                "The Children’s Summer Stories",
+                104,
+            ),
+            ("textbook-unit-02-lesson-07", "消防安全", "Fire Safety", 207),
+        ]
         assert connection.execute(
             select(func.count())
             .select_from(m.learning_material_lesson)
             .where(m.learning_material_lesson.c.material_id == 101)
-        ).scalar_one() == 4
+        ).scalar_one() == 6
