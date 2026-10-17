@@ -179,6 +179,48 @@ def test_private_zone_features_and_family_items_are_scoped(client):
     assert personal_note_id not in {item["id"] for item in public_notes.json()["items"]}
 
 
+def test_only_family_creator_can_rename_a_family_group(client):
+    admin_headers = sign_in(client)
+    family_member = create_family_member(client, admin_headers)
+    owner_headers = sign_in(client, "learner_test")
+    created = client.post(
+        "/api/learning/family-groups",
+        headers=owner_headers,
+        json={"name": "周末英语小组"},
+    )
+    assert created.status_code == 201
+    group_id = created.json()["id"]
+
+    added_member = client.post(
+        f"/api/learning/family-groups/{group_id}/members",
+        headers=owner_headers,
+        json={"username": family_member["username"], "role": "admin"},
+    )
+    assert added_member.status_code == 200
+
+    owner_headers = sign_in(client, "learner_test")
+    renamed = client.put(
+        f"/api/learning/family-groups/{group_id}",
+        headers=owner_headers,
+        json={"name": "周末快乐英语"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "周末快乐英语"
+
+    member_headers = sign_in(client, family_member["username"])
+    forbidden = client.put(
+        f"/api/learning/family-groups/{group_id}",
+        headers=member_headers,
+        json={"name": "管理员不能改名"},
+    )
+    assert forbidden.status_code == 403
+
+    owner_headers = sign_in(client, "learner_test")
+    groups = client.get("/api/learning/family-groups", headers=owner_headers)
+    assert groups.status_code == 200
+    assert groups.json()["items"][0]["name"] == "周末快乐英语"
+
+
 def test_private_zone_feature_config_is_admin_only(client):
     learner_headers = sign_in(client, "learner_test")
     forbidden = client.get("/api/admin/private-zone/features", headers=learner_headers)

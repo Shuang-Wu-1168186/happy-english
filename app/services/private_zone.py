@@ -286,7 +286,7 @@ class FamilyGroupService:
         return {**dict(group), "members": members}
 
     def rename(self, group_id, payload: s.FamilyGroupInput, user):
-        self.require_membership(group_id, user["id"], roles={"owner", "admin"})
+        self.require_membership(group_id, user["id"], roles={"owner"})
         self.groups.update(group_id, {"name": payload.name})
         self.db.commit()
         return self.get(group_id, user["id"])
