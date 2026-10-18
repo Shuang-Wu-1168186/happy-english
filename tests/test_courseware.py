@@ -618,6 +618,84 @@ def test_courseware_lesson_publishes_validated_blocks_to_course_learners(client)
     assert material_lesson.json()["courseware_blocks"] == learner_lesson["courseware_blocks"]
 
 
+def test_courseware_block_can_trace_a_textbook_sentence_source(client):
+    admin_headers = sign_in(client)
+    material = client.post(
+        "/api/admin/learning-materials",
+        headers=admin_headers,
+        json={
+            "topic_id": 2,
+            "material_code": "textbook-courseware-trace",
+            "title": "课文课件溯源测试",
+            "material_type": "courseware",
+        },
+    )
+    assert material.status_code == 201
+    lesson = client.post(
+        f"/api/admin/learning-materials/{material.json()['id']}/lessons",
+        headers=admin_headers,
+        json={
+            "lesson_code": "textbook-source-lesson",
+            "title": "课文来源课时",
+            "lesson_format": "courseware",
+        },
+    )
+    assert lesson.status_code == 201
+
+    hero_payload = {
+        "block_code": "hero",
+        "block_type": "hero",
+        "payload": {
+            "phrase": "Hello",
+            "meaning": "你好",
+            "memory": "见面时的问候语",
+            "key_sentence": {"english": "Hello!", "chinese": "你好！"},
+        },
+    }
+    hero = client.post(
+        f"/api/admin/learning-material-lessons/{lesson.json()['id']}/courseware-blocks",
+        headers=admin_headers,
+        json=hero_payload,
+    )
+    assert hero.status_code == 201
+
+    sources = client.put(
+        f"/api/admin/courseware-blocks/{hero.json()['id']}/sources",
+        headers=admin_headers,
+        json={
+            "items": [
+                {
+                    "source_resource": "english_textbook_sentence",
+                    "source_reference_id": 1,
+                    "source_field": "english_text",
+                    "source_snapshot_text": "Hello!",
+                    "source_locator": {"sentence_order": 1},
+                }
+            ]
+        },
+    )
+    assert sources.status_code == 200
+    assert sources.json()["items"][0]["source_resource"] == "english_textbook_sentence"
+    assert sources.json()["items"][0]["source_hash"]
+
+    invalid_field = client.put(
+        f"/api/admin/courseware-blocks/{hero.json()['id']}/sources",
+        headers=admin_headers,
+        json={
+            "items": [
+                {
+                    "source_resource": "english_textbook_sentence",
+                    "source_reference_id": 1,
+                    "source_field": "examples",
+                    "source_snapshot_text": "Hello!",
+                }
+            ]
+        },
+    )
+    assert invalid_field.status_code == 422
+    assert "source field" in invalid_field.json()["detail"]
+
+
 def test_note_courseware_can_be_generated_into_a_selected_material(client):
     admin_headers = sign_in(client)
     material = client.post(

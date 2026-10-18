@@ -484,7 +484,7 @@ class CoursewareBlockInput(Input):
 
 
 class CoursewareBlockSourceInput(Input):
-    source_resource: Literal["english_note_item"]
+    source_resource: Literal["english_note_item", "english_textbook_sentence"]
     source_reference_id: int = Field(gt=0)
     source_field: Literal[
         "raw_text",

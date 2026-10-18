@@ -197,11 +197,35 @@ class CoursewareBlockService:
         return [serialise_courseware_source(row) for row in self.sources.list_for_block(block_id)]
 
     def _validate_source(self, source: s.CoursewareBlockSourceInput):
-        record = self.db.execute(
-            select(m.english_note_item).where(m.english_note_item.c.id == source.source_reference_id)
-        ).mappings().first()
+        if source.source_resource == "english_note_item":
+            record = self.db.execute(
+                select(m.english_note_item).where(
+                    m.english_note_item.c.id == source.source_reference_id
+                )
+            ).mappings().first()
+            allowed_fields = {
+                "raw_text",
+                "english_text",
+                "chinese_text",
+                "explanation",
+                "examples",
+            }
+        elif source.source_resource == "english_textbook_sentence":
+            record = self.db.execute(
+                select(m.english_textbook_sentence).where(
+                    m.english_textbook_sentence.c.id == source.source_reference_id
+                )
+            ).mappings().first()
+            allowed_fields = {"english_text", "chinese_text"}
+        else:  # Pydantic rejects unknown resources before the service is called.
+            raise HTTPException(422, "The courseware source resource is unsupported.")
         if not record:
             raise HTTPException(422, "The courseware source record is unavailable.")
+        if source.source_field not in allowed_fields:
+            raise HTTPException(
+                422,
+                "The selected source field is unavailable for this courseware source.",
+            )
         source_text = record[source.source_field] or ""
         snapshot = source.source_snapshot_text
         if snapshot not in source_text:
