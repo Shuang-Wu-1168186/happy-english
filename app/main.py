@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api import (
     accounts,
@@ -53,7 +54,14 @@ def create_app(settings: Settings | None = None, engine=None):
             engine.dispose()
             logger.info("app.lifespan.stopped")
 
-    app = FastAPI(title="Happy English API", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(
+        title="Happy English API",
+        version="1.0.0",
+        lifespan=lifespan,
+        docs_url="/docs" if settings.docs_enabled else None,
+        redoc_url="/redoc" if settings.docs_enabled else None,
+        openapi_url="/openapi.json" if settings.docs_enabled else None,
+    )
     app.state.settings = settings
     app.state.engine = engine
     app.state.wechat_miniprogram = WeChatMiniProgramClient(settings)
@@ -81,7 +89,16 @@ def create_app(settings: Settings | None = None, engine=None):
                 response = await call_next(request)
             if is_api_request:
                 response.headers["Cache-Control"] = "no-store"
-            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers.setdefault("X-Content-Type-Options", "nosniff")
+            response.headers.setdefault("X-Frame-Options", "DENY")
+            response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+            response.headers.setdefault(
+                "Permissions-Policy", "camera=(), geolocation=(), microphone=(self), payment=()"
+            )
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "base-uri 'self'; frame-ancestors 'none'; object-src 'none'; form-action 'self'",
+            )
             response.headers[REQUEST_ID_HEADER] = request_id
             return response
         except Exception as exc:
@@ -123,6 +140,7 @@ def create_app(settings: Settings | None = None, engine=None):
         allow_headers=["Content-Type", "X-CSRF-Token", SESSION_HEADER, REQUEST_ID_HEADER],
         expose_headers=[SESSION_HEADER, REQUEST_ID_HEADER],
     )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 
     @app.exception_handler(IntegrityError)
     async def conflict(request, exc):

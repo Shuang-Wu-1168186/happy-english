@@ -21,6 +21,7 @@ CREATE TABLE `user` (
                         `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键ID',
                         `username` VARCHAR(100) NOT NULL COMMENT '用户名',
                         `password_hash` VARCHAR(255) NOT NULL COMMENT '密码哈希',
+                        `session_version` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '会话撤销版本',
                         `full_name` VARCHAR(100) NOT NULL COMMENT '姓名',
                         `email` VARCHAR(150) DEFAULT NULL COMMENT '邮箱',
                         `contact_number` VARCHAR(30) DEFAULT NULL COMMENT '联系电话',

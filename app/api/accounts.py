@@ -22,8 +22,8 @@ router = APIRouter(tags=["accounts"], route_class=OpaqueIdRoute)
 
 
 def login_ip(request: Request):
-    """Use the address added by the reverse proxy, falling back to the direct client."""
-    candidates = request.headers.get("X-Forwarded-For", "").split(",")
+    """Use the address set by the trusted reverse proxy, then the direct client."""
+    candidates = [request.headers.get("X-Real-IP", "")]
     if request.client:
         candidates.append(request.client.host)
     for candidate in candidates:
@@ -120,7 +120,15 @@ def miniprogram_login(data: MiniProgramLoginInput, request: Request, response: R
 
 
 @router.post("/auth/logout")
-def logout(request: Request, response: Response):
+def logout(request: Request, response: Response, db: Db):
+    if request.state.session.get("uid"):
+        try:
+            user = current_user(request, db)
+        except HTTPException as error:
+            if error.status_code != 401:
+                raise
+        else:
+            AccountService(db).revoke_sessions(user["id"])
     csrf = issue_session(response, request.app.state.settings)
     return {"user": None, "csrf_token": csrf}
 

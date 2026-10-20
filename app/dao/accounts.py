@@ -10,7 +10,9 @@ from app.dao.base import BaseTableDAO
 
 class UserDAO(BaseTableDAO):
     table = m.user
-    public_columns = tuple(column for column in table.c if column.name != "password_hash")
+    public_columns = tuple(
+        column for column in table.c if column.name not in {"password_hash", "session_version"}
+    )
 
     def get(self, user_id):
         return self.find_by_id(user_id)

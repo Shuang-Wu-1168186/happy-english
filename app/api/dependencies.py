@@ -4,7 +4,7 @@ from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import session_scope
-from app.core.security import password_version
+from app.core.security import authentication_version
 from app.dao.accounts import UserDAO
 
 
@@ -22,7 +22,7 @@ def current_user(request: Request, db: Db):
         not user
         or user["status"] != "active"
         or session.get("version")
-        != password_version(user["password_hash"], request.app.state.settings.secret_key)
+        != authentication_version(user, request.app.state.settings.secret_key)
     ):
         raise HTTPException(401, "Please log in again.")
     return user

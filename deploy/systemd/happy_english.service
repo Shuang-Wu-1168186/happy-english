@@ -1,0 +1,18 @@
+[Unit]
+Description=Happy English FastAPI App
+After=network.target mysqld.service
+
+[Service]
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/happy_english_server/happy-english
+ExecStart=/home/admin/happy_english_server/happy-english/venv/bin/uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+StandardOutput=file:/home/admin/logs/happy-english.log
+StandardError=file:/home/admin/logs/happy-english.log
+
+[Install]
+WantedBy=multi-user.target

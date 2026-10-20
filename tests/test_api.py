@@ -137,7 +137,7 @@ def test_login_audit_records_ip_time_and_login_outcome(client):
         json={"username": "admin_test", "password": "Testing123!"},
         headers={
             "X-CSRF-Token": token,
-            "X-Forwarded-For": "203.0.113.24",
+            "X-Real-IP": "203.0.113.24",
             "User-Agent": "HappyEnglish login audit test",
         },
     )
@@ -147,7 +147,7 @@ def test_login_audit_records_ip_time_and_login_outcome(client):
         json={"username": "admin_test", "password": "wrong password"},
         headers={
             "X-CSRF-Token": success.json()["csrf_token"],
-            "X-Forwarded-For": "2001:db8::24",
+            "X-Real-IP": "2001:db8::24",
             "User-Agent": "HappyEnglish failed login test",
         },
     )

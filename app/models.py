@@ -254,6 +254,7 @@ user = Table(
     Column("id", Integer, primary_key=True),
     Column("username", String(100), nullable=False),
     Column("password_hash", String(255), nullable=False),
+    Column("session_version", String(64), nullable=False, server_default=text("''")),
     Column("full_name", String(100), nullable=False),
     Column("email", String(150), nullable=True),
     Column("contact_number", String(30), nullable=True),

@@ -12,8 +12,15 @@ from app.dao.membership import MembershipPlanDAO, UserMembershipDAO
 from app.services.wechat import VerifiedPhoneNumber
 
 
+SENSITIVE_USER_FIELDS = {"password_hash", "session_version"}
+
+
 def public_user(row):
-    return {key: value for key, value in row.items() if key != "password_hash"}
+    return {key: value for key, value in row.items() if key not in SENSITIVE_USER_FIELDS}
+
+
+def new_session_version() -> str:
+    return secrets.token_urlsafe(32)
 
 
 class LoginAuditService:
@@ -78,6 +85,7 @@ class UserService:
                     {
                         "username": f"wx_{secrets.token_hex(10)}",
                         "password_hash": hash_password(secrets.token_urlsafe(48)),
+                        "session_version": new_session_version(),
                         "full_name": "微信用户",
                         "contact_number": phone.canonical,
                         "role": "learner",
@@ -102,6 +110,7 @@ class UserService:
     def create(self, data, *, admin=False):
         values = data.model_dump()
         values["password_hash"] = hash_password(values.pop("password"))
+        values["session_version"] = new_session_version()
         if not admin:
             values.update(role="learner", status="active")
         result = self.dao.create(values)
@@ -147,7 +156,20 @@ class UserService:
             raise HTTPException(400, "Current password is incorrect.")
         if data.old_password == data.new_password:
             raise HTTPException(400, "Choose a different password.")
-        result = self.dao.update_user(user["id"], {"password_hash": hash_password(data.new_password)})
+        result = self.dao.update_user(
+            user["id"],
+            {
+                "password_hash": hash_password(data.new_password),
+                "session_version": new_session_version(),
+            },
+        )
+        self.db.commit()
+        return result
+
+    def revoke_sessions(self, user_id):
+        if not self.dao.get(user_id):
+            return None
+        result = self.dao.update_user(user_id, {"session_version": new_session_version()})
         self.db.commit()
         return result
 

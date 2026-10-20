@@ -22,8 +22,17 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
-def password_version(hashed: str, secret: str) -> str:
-    return hmac.new(secret.encode(), hashed.encode(), hashlib.sha256).hexdigest()
+def authentication_version(user, secret: str) -> str:
+    """Return the server-checked version for a signed client session.
+
+    Password changes always invalidate sessions. The independent per-user
+    session version additionally lets logout revoke copied cookies and mobile
+    session headers immediately.
+    """
+
+    session_version = str(user.get("session_version") or "")
+    material = f"{user['password_hash']}:{session_version}".encode()
+    return hmac.new(secret.encode(), material, hashlib.sha256).hexdigest()
 
 
 def serializer(settings):
@@ -58,7 +67,7 @@ def issue_session(
     if user:
         data.update(
             uid=codec_from_settings(settings).encode(user["id"]),
-            version=password_version(user["password_hash"], settings.secret_key),
+            version=authentication_version(user, settings.secret_key),
         )
         if auth_method:
             data["auth_method"] = auth_method
