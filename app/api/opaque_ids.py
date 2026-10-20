@@ -1,0 +1,226 @@
+"""Central request/response filter for opaque database identifiers."""
+
+from __future__ import annotations
+
+import json
+from typing import Any, get_args, get_origin
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from fastapi import HTTPException, Request
+from fastapi.routing import APIRoute
+from starlette.responses import Response
+
+from app.core.opaque_ids import OpaqueIdCodec, OpaqueIdError, codec_from_settings
+
+
+# These non-suffixed fields are foreign keys too. The suffix rule covers the
+# usual ``course_id`` / ``lesson_ids`` forms used throughout the API.
+_EXTRA_IDENTIFIER_FIELDS = frozenset({"created_by", "updated_by", "granted_by", "invited_by"})
+_ZERO_SENTINEL_FIELDS = frozenset({"parent_id"})
+_TARGET_URL_SINGLE_ID_ROUTES = frozenset(
+    {
+        "courses",
+        "learning-materials",
+        "course-modules",
+        "course-topics",
+    }
+)
+
+
+def _is_identifier_field(key: object) -> bool:
+    return isinstance(key, str) and (
+        key == "id" or key.endswith("_id") or key in _EXTRA_IDENTIFIER_FIELDS
+    )
+
+
+def _is_identifier_collection(key: object) -> bool:
+    return isinstance(key, str) and (key == "ids" or key.endswith("_ids"))
+
+
+def _is_int_annotation(annotation: object) -> bool:
+    if annotation is int:
+        return True
+    origin = get_origin(annotation)
+    return bool(origin and any(_is_int_annotation(argument) for argument in get_args(annotation)))
+
+
+def _decode_identifier(value: Any, key: str, codec: OpaqueIdCodec) -> Any:
+    if value is None:
+        return None
+    if key in _ZERO_SENTINEL_FIELDS and value in {0, "0"}:
+        return 0
+    return codec.decode(value)
+
+
+def _target_url_identifier_positions(path: str) -> tuple[int, ...]:
+    """Return segment positions that are IDs in supported internal UI routes."""
+
+    segments = path.split("/")
+    if len(segments) > 2 and segments[1] in _TARGET_URL_SINGLE_ID_ROUTES and segments[2]:
+        return (2,)
+    if len(segments) > 3 and segments[1] == "learn" and segments[2] and segments[3]:
+        return (3,)
+    if len(segments) > 3 and segments[1:3] == ["admin", "users"] and segments[3]:
+        return (3,)
+    return ()
+
+
+def _externalize_target_url_identifier(value: str, codec: OpaqueIdCodec) -> str:
+    if OpaqueIdCodec.is_token(value):
+        return value
+    if value.isdecimal() and int(value) > 0:
+        return codec.encode(int(value))
+    return value
+
+
+def _transform_internal_target_url(value: Any, codec: OpaqueIdCodec, *, decode: bool) -> Any:
+    """Convert IDs embedded in an internal UI deep-link without touching external URLs."""
+
+    if not isinstance(value, str):
+        return value
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return value
+
+    segments = parsed.path.split("/")
+    for position in _target_url_identifier_positions(parsed.path):
+        segment = segments[position]
+        segments[position] = (
+            str(_decode_identifier(segment, "id", codec))
+            if decode
+            else _externalize_target_url_identifier(segment, codec)
+        )
+
+    query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+    transformed_pairs = [
+        (
+            key,
+            str(_decode_identifier(item, key, codec))
+            if decode
+            else _externalize_target_url_identifier(item, codec),
+        )
+        if _is_identifier_field(key) or _is_identifier_collection(key)
+        else (key, item)
+        for key, item in query_pairs
+    ]
+    return urlunsplit(
+        ("", "", "/".join(segments), urlencode(transformed_pairs, doseq=True), parsed.fragment)
+    )
+
+
+def _decode_payload(value: Any, codec: OpaqueIdCodec, key: str | None = None) -> Any:
+    if isinstance(value, dict):
+        return {child_key: _decode_payload(child_value, codec, child_key) for child_key, child_value in value.items()}
+    if isinstance(value, list):
+        if _is_identifier_collection(key):
+            return [_decode_identifier(item, key or "ids", codec) for item in value]
+        return [_decode_payload(item, codec) for item in value]
+    if key == "target_url":
+        return _transform_internal_target_url(value, codec, decode=True)
+    if _is_identifier_field(key):
+        return _decode_identifier(value, key or "id", codec)
+    return value
+
+
+def _encode_identifier(value: Any, codec: OpaqueIdCodec) -> Any:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return value
+    return codec.encode(value)
+
+
+def externalize_ids(value: Any, codec: OpaqueIdCodec, key: str | None = None) -> Any:
+    """Return a copy with every database-ID-shaped JSON field made opaque."""
+
+    if isinstance(value, dict):
+        return {child_key: externalize_ids(child_value, codec, child_key) for child_key, child_value in value.items()}
+    if isinstance(value, list):
+        if _is_identifier_collection(key):
+            return [_encode_identifier(item, codec) for item in value]
+        return [externalize_ids(item, codec) for item in value]
+    if key == "target_url":
+        return _transform_internal_target_url(value, codec, decode=False)
+    if _is_identifier_field(key):
+        return _encode_identifier(value, codec)
+    return value
+
+
+async def _decode_json_body(request: Request, codec: OpaqueIdCodec) -> None:
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
+    if content_type != "application/json":
+        return
+    body = await request.body()
+    if not body:
+        return
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        # Leave malformed JSON to FastAPI's normal validation response.
+        return
+    request._body = json.dumps(_decode_payload(payload, codec), ensure_ascii=False, separators=(",", ":")).encode()
+    request.__dict__.pop("_json", None)
+
+
+def _decode_query_string(request: Request, codec: OpaqueIdCodec) -> None:
+    raw_query = request.scope.get("query_string", b"")
+    if not raw_query:
+        return
+    try:
+        pairs = parse_qsl(raw_query.decode(), keep_blank_values=True)
+        decoded = [
+            (key, _decode_identifier(value, key, codec))
+            if _is_identifier_field(key) or _is_identifier_collection(key)
+            else (key, value)
+            for key, value in pairs
+        ]
+    except (UnicodeDecodeError, OpaqueIdError) as error:
+        raise OpaqueIdError("Invalid opaque query identifier.") from error
+    request.scope["query_string"] = urlencode(decoded, doseq=True).encode()
+    request.__dict__.pop("_query_params", None)
+
+
+def _rewrite_json_response(response: Response, codec: OpaqueIdCodec) -> Response:
+    content_type = response.headers.get("content-type", "").lower()
+    body = getattr(response, "body", None)
+    if not body or "application/json" not in content_type:
+        return response
+    try:
+        payload = json.loads(body)
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError):
+        return response
+    response.body = json.dumps(externalize_ids(payload, codec), ensure_ascii=False, separators=(",", ":")).encode()
+    response.headers["content-length"] = str(len(response.body))
+    return response
+
+
+class OpaqueIdRoute(APIRoute):
+    """FastAPI route that presents opaque IDs while retaining internal integers."""
+
+    def get_route_handler(self):
+        original_handler = super().get_route_handler()
+        integer_path_id_names = {
+            field.name
+            for field in self.dependant.path_params
+            if _is_identifier_field(field.name)
+            and _is_int_annotation(
+                getattr(field, "type_", None)
+                or getattr(field, "annotation", None)
+                or getattr(getattr(field, "field_info", None), "annotation", None)
+            )
+        }
+
+        async def opaque_id_route_handler(request: Request) -> Response:
+            codec = codec_from_settings(request.app.state.settings)
+            try:
+                for name in integer_path_id_names:
+                    request.scope["path_params"][name] = str(
+                        _decode_identifier(request.path_params[name], name, codec)
+                    )
+                _decode_query_string(request, codec)
+                await _decode_json_body(request, codec)
+            except OpaqueIdError as error:
+                raise HTTPException(status_code=422, detail="Invalid opaque identifier.") from error
+
+            response = await original_handler(request)
+            return _rewrite_json_response(response, codec)
+
+        return opaque_id_route_handler

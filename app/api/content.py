@@ -3,12 +3,13 @@
 from fastapi import APIRouter, Body, Query, Request, UploadFile
 
 from app.api.dependencies import Admin, Db, User
+from app.api.opaque_ids import OpaqueIdRoute
 from app.services.content import ContentService
 from app.services.media import ImageUploadService
 from app.services.membership import MembershipService
 from app.services.note_frequency import NoteItemFrequencyService
 
-router = APIRouter(tags=["learning"])
+router = APIRouter(tags=["learning"], route_class=OpaqueIdRoute)
 
 
 @router.get("/modules")

@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
+from app.core.opaque_ids import codec_from_settings
 from app.main import create_app
 from app.services.wechat import VerifiedPhoneNumber, WeChatCredentialError
 from tests.support import sample_engine
@@ -58,3 +59,9 @@ def sign_in(client, username="admin_test"):
     )
     assert response.status_code == 200
     return {"X-CSRF-Token": response.json()["csrf_token"]}
+
+
+def opaque_id(client, identifier: int) -> str:
+    """Return the public token for a fixture's internal database ID."""
+
+    return codec_from_settings(client.app.state.settings).encode(identifier)

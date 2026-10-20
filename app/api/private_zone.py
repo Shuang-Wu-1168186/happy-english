@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.dependencies import Admin, Db, User
+from app.api.opaque_ids import OpaqueIdRoute
 from app.schemas import (
     FamilyGroupInput,
     FamilyGroupJoinInput,
@@ -17,7 +18,7 @@ from app.schemas import (
 from app.services.private_zone import FamilyGroupService, PrivateZoneFeatureService, PrivateZoneService
 
 
-router = APIRouter(tags=["private-zone"])
+router = APIRouter(tags=["private-zone"], route_class=OpaqueIdRoute)
 
 
 @router.get("/learning/private-zone")

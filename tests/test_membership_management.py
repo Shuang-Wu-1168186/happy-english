@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from tests.conftest import sign_in
+from tests.conftest import opaque_id, sign_in
 
 
 def test_admin_configures_material_membership_and_course_access(client):
@@ -47,7 +47,7 @@ def test_admin_configures_material_membership_and_course_access(client):
             "lesson_code": "unit-1",
             "title": "Unit 1: Hello",
             "source_resource": "textbook",
-            "source_reference_id": 1,
+            "source_reference_id": opaque_id(client, 1),
             "estimated_minutes": 12,
         },
     )
@@ -62,7 +62,7 @@ def test_admin_configures_material_membership_and_course_access(client):
             "lesson_code": "private-note",
             "title": "Private note",
             "source_resource": "notes",
-            "source_reference_id": 1,
+            "source_reference_id": opaque_id(client, 1),
         },
     )
     assert private_note_lesson.status_code == 422
@@ -151,12 +151,14 @@ def test_admin_configures_material_membership_and_course_access(client):
     # Member materials must not be retrievable through the old, resource-wide
     # content endpoint, which has no course context for applying the preview.
     assert client.get("/api/content/textbook", headers=learner_headers).status_code == 403
-    assert client.get("/api/content/textbook/1", headers=learner_headers).status_code == 403
+    assert client.get(
+        f"/api/content/textbook/{opaque_id(client, 1)}", headers=learner_headers
+    ).status_code == 403
 
     starts_at = datetime.now().replace(microsecond=0)
     admin_headers = sign_in(client)
     grant = client.post(
-        "/api/admin/users/2/memberships",
+        f"/api/admin/users/{opaque_id(client, 2)}/memberships",
         headers=admin_headers,
         json={
             "membership_plan_id": plan_id,
@@ -187,7 +189,7 @@ def test_admin_configures_material_membership_and_course_access(client):
     assert opened.status_code == 200
     assert opened.json()["material"]["id"] == material_id
     assert opened.json()["lessons"][0]["id"] == lesson_response.json()["id"]
-    assert opened.json()["lessons"][0]["source_content"]["id"] == 1
+    assert opened.json()["lessons"][0]["source_content"]["id"] == opaque_id(client, 1)
 
 
 def test_membership_configuration_requires_administrator(client):
@@ -204,7 +206,7 @@ def test_membership_course_previews_two_lessons_and_locks_the_rest(client):
         "/api/admin/learning-materials",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "material_code": "preview-material",
             "title": "会员试看教材",
             "material_type": "textbook",
@@ -230,7 +232,7 @@ def test_membership_course_previews_two_lessons_and_locks_the_rest(client):
         "/api/admin/learning/courses",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "material_id": material_id,
             "course_code": "preview-material-course",
             "title": "会员试看课程",
@@ -358,7 +360,7 @@ def test_membership_course_previews_two_lessons_and_locks_the_rest(client):
     )
     starts_at = datetime.now().replace(microsecond=0)
     grant = client.post(
-        "/api/admin/users/2/memberships",
+        f"/api/admin/users/{opaque_id(client, 2)}/memberships",
         headers=admin_headers,
         json={
             "membership_plan_id": plan.json()["id"],
@@ -401,7 +403,7 @@ def test_membership_preview_counts_lessons_across_linked_materials(client):
             "/api/admin/learning-materials",
             headers=admin_headers,
             json={
-                "topic_id": 2,
+                "topic_id": opaque_id(client, 2),
                 "material_code": material_code,
                 "title": title,
                 "material_type": "textbook",
@@ -427,7 +429,7 @@ def test_membership_preview_counts_lessons_across_linked_materials(client):
         "/api/admin/learning/courses",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "material_ids": [material["id"] for material in materials],
             "course_code": "preview-multi-material-course",
             "title": "跨教材试看课程",
@@ -466,7 +468,7 @@ def test_membership_topic_preview_is_shared_across_the_whole_topic(
         "/api/admin/learning/topics",
         headers=admin_headers,
         json={
-            "module_id": 3,
+            "module_id": opaque_id(client, 3),
             "topic_code": topic_code,
             "title": topic_title,
         },
@@ -625,7 +627,7 @@ def test_cannot_issue_an_inactive_membership_plan(client):
     assert plan.status_code == 201
 
     response = client.post(
-        "/api/admin/users/2/memberships",
+        f"/api/admin/users/{opaque_id(client, 2)}/memberships",
         headers=admin_headers,
         json={
             "membership_plan_id": plan.json()["id"],
@@ -689,7 +691,7 @@ def test_membership_admin_lists_filter_and_paginate(client):
         "/api/admin/learning-materials",
         headers=admin_headers,
         json={
-            "topic_id": 1,
+            "topic_id": opaque_id(client, 1),
             "material_code": "paged-material",
             "title": "分页教材",
             "material_type": "textbook",
@@ -707,7 +709,7 @@ def test_membership_admin_lists_filter_and_paginate(client):
         "/api/admin/learning/courses",
         headers=admin_headers,
         json={
-            "topic_id": 1,
+            "topic_id": opaque_id(client, 1),
             "material_id": material.json()["id"],
             "course_code": "paged-material-course",
             "title": "分页教材课程",
@@ -724,7 +726,7 @@ def test_membership_admin_lists_filter_and_paginate(client):
 
     starts_at = datetime.now().replace(microsecond=0)
     issued = client.post(
-        "/api/admin/users/2/memberships",
+        f"/api/admin/users/{opaque_id(client, 2)}/memberships",
         headers=admin_headers,
         json={
             "membership_plan_id": created_plans[0]["id"],
@@ -741,4 +743,4 @@ def test_membership_admin_lists_filter_and_paginate(client):
     )
     assert memberships.status_code == 200
     assert memberships.json()["total"] == 1
-    assert memberships.json()["items"][0]["user_id"] == 2
+    assert memberships.json()["items"][0]["user_id"] == opaque_id(client, 2)

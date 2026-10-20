@@ -39,6 +39,11 @@ class ProfileInput(Input):
     contact_number: str | None = Field(default=None, max_length=30)
     home_address: str | None = Field(default=None, max_length=255)
 
+    @field_validator("email", "contact_number", "home_address", mode="before")
+    @classmethod
+    def blank_optional_text_is_none(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
+
     @field_validator("email")
     @classmethod
     def valid_email(cls, value):
@@ -603,7 +608,7 @@ class LearningCourseProgressInput(Input):
 
 class LearningStudySessionStartInput(Input):
     course_id: int = Field(gt=0)
-    platform: Literal["web", "mini_program"] = "web"
+    platform: Literal["web", "mini_program", "android"] = "web"
     entry_source: str = Field(default="", max_length=100)
 
 

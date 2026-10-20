@@ -11,6 +11,10 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     secret_key: str = Field(min_length=32)
+    # Defaults to a domain-separated derivation from SECRET_KEY. Set this to a
+    # dedicated random value before rotating identifier tokens independently.
+    external_id_secret: str = ""
+    external_id_previous_secrets: list[str] = Field(default_factory=list)
     database_url: str = "mysql+pymysql://happyenglish@127.0.0.1:3306/happy_english?charset=utf8mb4"
     cookie_secure: bool = False
     session_seconds: int = Field(default=43200, ge=60)

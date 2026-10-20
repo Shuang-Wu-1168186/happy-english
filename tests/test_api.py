@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app import models as m
 from app.core.security import COOKIE, SESSION_HEADER, serializer
-from tests.conftest import sign_in
+from tests.conftest import opaque_id, sign_in
 
 
 def test_health_session_cors_and_csrf(client):
@@ -58,7 +58,7 @@ def test_authenticated_session_restore_renews_header_and_keeps_csrf(client):
     assert restored.json()["csrf_token"] == original_csrf
     assert restored.headers[SESSION_HEADER]
     renewed = serializer(client.app.state.settings).loads(restored.headers[SESSION_HEADER])
-    assert renewed["uid"] == 1
+    assert renewed["uid"] == opaque_id(client, 1)
     assert renewed["csrf"] == original_csrf
 
 
@@ -114,7 +114,7 @@ def test_miniprogram_phone_login_finds_existing_user_by_legacy_phone(client):
     )
     assert response.status_code == 200
     assert response.json()["created"] is False
-    assert response.json()["user"]["id"] == 2
+    assert response.json()["user"]["id"] == opaque_id(client, 2)
     with client.app.state.engine.connect() as connection:
         assert len(connection.execute(select(m.user.c.id)).all()) == 2
 
@@ -156,7 +156,7 @@ def test_login_audit_records_ip_time_and_login_outcome(client):
     records = client.get("/api/admin/login-audits?q=admin_test").json()["items"]
     succeeded = next(record for record in records if record["success"])
     rejected = next(record for record in records if not record["success"])
-    assert succeeded["user_id"] == 1
+    assert succeeded["user_id"] == opaque_id(client, 1)
     assert succeeded["full_name"] == "测试管理员"
     assert succeeded["login_ip"] == "203.0.113.24"
     assert succeeded["user_agent"] == "HappyEnglish login audit test"
@@ -188,14 +188,14 @@ def test_learning_modules_and_details(client, resource):
     response = client.get(f"/api/content/{resource}")
     assert response.status_code == 200
     assert response.json()["total"] > 0
-    detail = client.get(f"/api/content/{resource}/1")
+    detail = client.get(f"/api/content/{resource}/{opaque_id(client, 1)}")
     assert detail.status_code == 200
     if resource == "kids-cards":
         assert detail.json()["examples"][0]["translation"] == "我喜欢苹果。"
     if resource == "phonics":
         assert detail.json()["quiz_choices"] == ["cat", "dog"]
     if resource == "sentences":
-        assert detail.json()["next_id"] == 2
+        assert detail.json()["next_id"] == opaque_id(client, 2)
     if resource == "textbook":
         assert detail.json()["sentences"][0]["english_text"] == "Hello!"
 
@@ -205,13 +205,13 @@ def test_filter_pagination_and_auth_permissions(client):
     assert client.get("/api/content/sentences?q=Hello").json()["total"] == 1
     notes = client.get("/api/content/notes?q=Good%20morning").json()
     assert notes["total"] == 1
-    assert notes["items"][0]["id"] == 1
+    assert notes["items"][0]["id"] == opaque_id(client, 1)
     note_items = client.get("/api/content/note-items?q=Good%20morning").json()
     assert note_items["total"] == 1
-    assert note_items["items"][0]["id"] == 1
+    assert note_items["items"][0]["id"] == opaque_id(client, 1)
     assert client.get("/api/content/note-items?q=Daily%20practice").json()["total"] == 1
     page = client.get("/api/content/sentences?page_size=1&page=2").json()
-    assert page["items"][0]["id"] == 1
+    assert page["items"][0]["id"] == opaque_id(client, 1)
     assert client.get("/api/content/sentences?page=0").status_code == 422
     assert client.get("/api/admin/users").status_code == 403
     assert (
@@ -254,19 +254,22 @@ def test_note_item_frequency_is_per_user_and_visible_on_note_cards(client):
     listed = client.get("/api/content/note-items").json()
     assert listed["items"][0]["frequency_count"] == 0
 
-    first = client.post("/api/content/note-items/1/frequency", headers=headers)
-    second = client.post("/api/content/note-items/1/frequency", headers=headers)
+    note_item_id = opaque_id(client, 1)
+    first = client.post(f"/api/content/note-items/{note_item_id}/frequency", headers=headers)
+    second = client.post(f"/api/content/note-items/{note_item_id}/frequency", headers=headers)
     assert first.status_code == 200 and first.json()["frequency_count"] == 1
     assert second.status_code == 200 and second.json()["frequency_count"] == 2
 
-    detail = client.get("/api/content/note-items/1").json()
+    detail = client.get(f"/api/content/note-items/{note_item_id}").json()
     assert detail["frequency_count"] == 2
-    note = client.get("/api/content/notes/1").json()
+    note = client.get(f"/api/content/notes/{opaque_id(client, 1)}").json()
     assert note["items"][0]["frequency_count"] == 2
 
     admin_headers = sign_in(client)
     assert client.get("/api/content/note-items").json()["items"][0]["frequency_count"] == 0
-    assert client.post("/api/content/note-items/999/frequency", headers=admin_headers).status_code == 404
+    assert client.post(
+        f"/api/content/note-items/{opaque_id(client, 999)}/frequency", headers=admin_headers
+    ).status_code == 404
 
 
 def test_admin_user_search_supports_membership_picker(client):
@@ -286,7 +289,7 @@ def test_admin_user_search_supports_membership_picker(client):
     payload = response.json()
     assert payload["page_size"] == 1
     assert payload["total"] == 1
-    assert payload["items"][0]["id"] == 2
+    assert payload["items"][0]["id"] == opaque_id(client, 2)
     assert payload["items"][0]["contact_number"] == "13800138000"
     assert "password_hash" not in payload["items"][0]
 
@@ -309,7 +312,7 @@ def test_admin_crud_validation_and_delete(client):
 def test_new_note_items_append_to_the_note(client):
     headers = sign_in(client)
     payload = {
-        "note_id": 1,
+        "note_id": opaque_id(client, 1),
         "item_type": "vocab",
         "item_title": "first new card",
         "raw_text": "first new card",
@@ -348,14 +351,14 @@ def test_new_note_items_append_to_the_note(client):
     )
     assert round_tripped.status_code == 200
     assert round_tripped.json()["classification_source"] == "auto_rule_v1"
-    items = client.get("/api/content/notes/1").json()["items"]
+    items = client.get(f"/api/content/notes/{opaque_id(client, 1)}").json()["items"]
     assert [item["item_title"] for item in items][-2:] == ["first new card", "second new card"]
 
 
 def test_note_item_language_register_can_be_filtered_and_manually_corrected(client):
     headers = sign_in(client)
     payload = {
-        "note_id": 1,
+        "note_id": opaque_id(client, 1),
         "item_type": "phrase",
         "item_title": "Would you mind",
         "raw_text": "Would you mind joining the meeting?",
@@ -381,7 +384,7 @@ def test_note_item_language_register_can_be_filtered_and_manually_corrected(clie
 def test_interview_children_replaced_in_transaction(client):
     headers = sign_in(client)
     payload = {
-        "category_id": 1,
+        "category_id": opaque_id(client, 1),
         "question": "A new question",
         "sections": [
             {"section_type": "situation", "section_title": "Situation", "content_en": "I worked in a team."}
@@ -400,21 +403,25 @@ def test_interview_children_replaced_in_transaction(client):
 
 def test_progress_is_per_user_and_checks_note_parent(client):
     headers = sign_in(client, "learner_test")
-    payload = {"content_type": "everyday_sentence", "item_id": 1}
+    payload = {"content_type": "everyday_sentence", "item_id": opaque_id(client, 1)}
     assert client.post("/api/progress", headers=headers, json=payload).status_code == 200
     assert (
         client.post(
-            "/api/progress", headers=headers, json={**payload, "item_id": 2, "completed": True}
+            "/api/progress", headers=headers, json={**payload, "item_id": opaque_id(client, 2), "completed": True}
         ).status_code
         == 200
     )
     records = client.get("/api/progress").json()
-    assert len(records) == 1 and records[0]["completed"] == 1 and records[0]["item_id"] == 2
+    assert (
+        len(records) == 1
+        and records[0]["completed"] == 1
+        and records[0]["item_id"] == opaque_id(client, 2)
+    )
     assert (
         client.post(
             "/api/progress",
             headers=headers,
-            json={"content_type": "english_note", "parent_id": 1, "item_id": 1},
+            json={"content_type": "english_note", "parent_id": opaque_id(client, 1), "item_id": opaque_id(client, 1)},
         ).status_code
         == 200
     )
@@ -425,7 +432,7 @@ def test_progress_is_per_user_and_checks_note_parent(client):
         client.post(
             "/api/progress",
             headers=headers,
-            json={"content_type": "english_note", "parent_id": 999, "item_id": 1},
+            json={"content_type": "english_note", "parent_id": opaque_id(client, 999), "item_id": opaque_id(client, 1)},
         ).status_code
         == 404
     )
@@ -444,7 +451,13 @@ def test_signup_profile_password_revokes_old_cookie(client):
     assert client.post("/api/auth/signup", json=data, headers=headers).status_code == 409
     headers = sign_in(client)
     old_cookie = client.cookies.get(COOKIE)
-    assert client.put("/api/profile", json={"full_name": "Updated"}, headers=headers).status_code == 200
+    profile = client.put(
+        "/api/profile",
+        json={"full_name": "Updated", "contact_number": ""},
+        headers=headers,
+    )
+    assert profile.status_code == 200
+    assert profile.json()["contact_number"] is None
     changed = client.post(
         "/api/profile/password",
         json={"old_password": "Testing123!", "new_password": "Changed123!"},
@@ -459,9 +472,9 @@ def test_signup_profile_password_revokes_old_cookie(client):
 def test_admin_cannot_disable_self_and_inactive_user_loses_access(client):
     headers = sign_in(client)
     payload = {"username": "admin_test", "full_name": "Admin", "role": "admin", "status": "inactive"}
-    assert client.put("/api/admin/users/1", json=payload, headers=headers).status_code == 409
+    assert client.put(f"/api/admin/users/{opaque_id(client, 1)}", json=payload, headers=headers).status_code == 409
     payload.update(username="learner_test", role="learner")
-    assert client.put("/api/admin/users/2", json=payload, headers=headers).status_code == 200
+    assert client.put(f"/api/admin/users/{opaque_id(client, 2)}", json=payload, headers=headers).status_code == 200
     response = client.post(
         "/api/auth/login", json={"username": "learner_test", "password": "Testing123!"}, headers=headers
     )
@@ -493,10 +506,10 @@ def test_delete_note_removes_children_and_progress(client):
         client.post(
             "/api/progress",
             headers=headers,
-            json={"content_type": "english_note", "parent_id": 1, "item_id": 1},
+            json={"content_type": "english_note", "parent_id": opaque_id(client, 1), "item_id": opaque_id(client, 1)},
         ).status_code
         == 200
     )
-    assert client.delete("/api/content/notes/1", headers=headers).status_code == 204
-    assert client.get("/api/content/note-items/1").status_code == 404
+    assert client.delete(f"/api/content/notes/{opaque_id(client, 1)}", headers=headers).status_code == 204
+    assert client.get(f"/api/content/note-items/{opaque_id(client, 1)}").status_code == 404
     assert client.get("/api/progress").json() == []

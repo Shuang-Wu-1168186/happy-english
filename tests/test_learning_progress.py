@@ -1,4 +1,4 @@
-from tests.conftest import sign_in
+from tests.conftest import opaque_id, sign_in
 
 
 def create_course(client, headers):
@@ -26,7 +26,7 @@ def create_course(client, headers):
             "title": "学习进度测试课程",
             "course_type": "dialogue",
             "content_resource": "dialogues",
-            "content_reference_id": 1,
+            "content_reference_id": opaque_id(client, 1),
             "content": {"blocks": [{"key": "dialogue-1"}, {"key": "dialogue-2"}]},
         },
     )
@@ -67,7 +67,7 @@ def test_course_progress_tracks_items_and_resume_position(client):
     assert records.json()["items"][0]["course_content_resource"] == "dialogues"
     resumed = client.get("/api/learning/progress/continue", headers=headers).json()
     assert resumed["course_id"] == course_id
-    assert resumed["course_content_reference_id"] == 1
+    assert resumed["course_content_reference_id"] == opaque_id(client, 1)
 
 
 def test_learning_sessions_accumulate_time_without_duplicate_finish(client):
@@ -119,3 +119,21 @@ def test_learning_sessions_accumulate_time_without_duplicate_finish(client):
     )
     assert total_only.status_code == 200
     assert total_only.json() == {"total_active_seconds": 1, "days": []}
+
+
+def test_learning_sessions_accept_the_android_course_player(client):
+    course_id = create_course(client, sign_in(client))
+    headers = sign_in(client, "learner_test")
+
+    started = client.post(
+        "/api/learning/study-sessions",
+        headers=headers,
+        json={
+            "course_id": course_id,
+            "platform": "android",
+            "entry_source": "course_player",
+        },
+    )
+
+    assert started.status_code == 201
+    assert started.json()["platform"] == "android"

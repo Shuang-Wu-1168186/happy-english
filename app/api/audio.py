@@ -9,11 +9,12 @@ from fastapi import APIRouter, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.api.dependencies import User
+from app.api.opaque_ids import OpaqueIdRoute
 from app.audio.assessment import calculate_assessment_score
 from app.schemas import TTSInput
 from app.services.roleston_menu import ROLLESTON_MENU_TTS_TEXTS
 
-router = APIRouter(prefix="/audio", tags=["audio"])
+router = APIRouter(prefix="/audio", tags=["audio"], route_class=OpaqueIdRoute)
 whisper_model = None
 whisper_lock = Lock()
 logger = logging.getLogger(__name__)

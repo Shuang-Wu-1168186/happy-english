@@ -5,6 +5,7 @@ from datetime import date
 from fastapi import APIRouter, Query
 
 from app.api.dependencies import Db, User
+from app.api.opaque_ids import OpaqueIdRoute
 from app.schemas import (
     LearningCourseProgressInput,
     LearningStudySessionFinishInput,
@@ -12,7 +13,7 @@ from app.schemas import (
 )
 from app.services.learning_progress import LearningProgressService, LearningStudySessionService
 
-router = APIRouter(tags=["learning-progress"])
+router = APIRouter(tags=["learning-progress"], route_class=OpaqueIdRoute)
 
 
 @router.get("/learning/progress")

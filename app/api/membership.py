@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Query
 
 from app.api.dependencies import Admin, Db, User
+from app.api.opaque_ids import OpaqueIdRoute
 from app.schemas import (
     LearningUserCourseInput,
     MembershipBenefitCoursesInput,
@@ -13,7 +14,7 @@ from app.schemas import (
 )
 from app.services.membership import MembershipService
 
-router = APIRouter(tags=["membership"])
+router = APIRouter(tags=["membership"], route_class=OpaqueIdRoute)
 
 
 @router.get("/admin/membership-plans")

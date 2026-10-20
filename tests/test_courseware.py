@@ -7,7 +7,7 @@ from app.services.courseware_scene_catalog import (
     CURATED_REAL_LIFE_EXPRESSION_SCENES,
     CURATED_REAL_LIFE_SCENES,
 )
-from tests.conftest import sign_in
+from tests.conftest import opaque_id, sign_in
 
 
 def _block_payload(preview, block_type):
@@ -471,7 +471,7 @@ def test_courseware_lesson_publishes_validated_blocks_to_course_learners(client)
         "/api/admin/learning-materials",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "material_code": "courseware-phrases",
             "title": "短语课件",
             "material_type": "courseware",
@@ -526,7 +526,7 @@ def test_courseware_lesson_publishes_validated_blocks_to_course_learners(client)
             "items": [
                 {
                     "source_resource": "english_note_item",
-                    "source_reference_id": 1,
+                    "source_reference_id": opaque_id(client, 1),
                     "source_field": "english_text",
                     "source_snapshot_text": "Not in the source",
                 }
@@ -542,7 +542,7 @@ def test_courseware_lesson_publishes_validated_blocks_to_course_learners(client)
             "items": [
                 {
                     "source_resource": "english_note_item",
-                    "source_reference_id": 1,
+                    "source_reference_id": opaque_id(client, 1),
                     "source_field": "english_text",
                     "source_snapshot_text": "Good morning",
                 }
@@ -576,7 +576,7 @@ def test_courseware_lesson_publishes_validated_blocks_to_course_learners(client)
         "/api/admin/learning/courses",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "material_id": material_id,
             "course_code": "courseware-phrases-course",
             "title": "短语课件",
@@ -602,8 +602,8 @@ def test_courseware_lesson_publishes_validated_blocks_to_course_learners(client)
             "payload": hero_payload["payload"],
             "sort_order": 0,
             "status": "published",
-            "created_by": 1,
-            "updated_by": 1,
+            "created_by": opaque_id(client, 1),
+            "updated_by": opaque_id(client, 1),
             "created_at": learner_lesson["courseware_blocks"][0]["created_at"],
             "updated_at": learner_lesson["courseware_blocks"][0]["updated_at"],
         }
@@ -624,7 +624,7 @@ def test_courseware_block_can_trace_a_textbook_sentence_source(client):
         "/api/admin/learning-materials",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "material_code": "textbook-courseware-trace",
             "title": "课文课件溯源测试",
             "material_type": "courseware",
@@ -666,7 +666,7 @@ def test_courseware_block_can_trace_a_textbook_sentence_source(client):
             "items": [
                 {
                     "source_resource": "english_textbook_sentence",
-                    "source_reference_id": 1,
+                    "source_reference_id": opaque_id(client, 1),
                     "source_field": "english_text",
                     "source_snapshot_text": "Hello!",
                     "source_locator": {"sentence_order": 1},
@@ -685,7 +685,7 @@ def test_courseware_block_can_trace_a_textbook_sentence_source(client):
             "items": [
                 {
                     "source_resource": "english_textbook_sentence",
-                    "source_reference_id": 1,
+                    "source_reference_id": opaque_id(client, 1),
                     "source_field": "examples",
                     "source_snapshot_text": "Hello!",
                 }
@@ -702,7 +702,7 @@ def test_note_courseware_can_be_generated_into_a_selected_material(client):
         "/api/admin/learning-materials",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "material_code": "idiomatic-phrases-august",
             "title": "地道英语日积月累【8月】",
             "material_type": "courseware",
@@ -713,7 +713,7 @@ def test_note_courseware_can_be_generated_into_a_selected_material(client):
     generated = client.post(
         "/api/admin/courseware/from-note-item",
         headers=admin_headers,
-        json={"note_item_id": 1, "topic_id": 2, "material_id": material.json()["id"]},
+        json={"note_item_id": opaque_id(client, 1), "topic_id": opaque_id(client, 2), "material_id": material.json()["id"]},
     )
 
     assert generated.status_code == 201
@@ -756,7 +756,7 @@ def test_note_courseware_can_be_generated_into_a_selected_material(client):
         f"/api/admin/learning/courses/{course_id}",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "material_id": material.json()["id"],
             "course_code": "idiomatic-phrases-august-course",
             "title": "地道英语日积月累【8月】",
@@ -773,7 +773,7 @@ def test_note_courseware_can_be_generated_into_a_selected_material(client):
     rebuilt = client.post(
         "/api/admin/courseware/from-note-item",
         headers=admin_headers,
-        json={"note_item_id": 1, "topic_id": 2, "material_id": material.json()["id"]},
+        json={"note_item_id": opaque_id(client, 1), "topic_id": opaque_id(client, 2), "material_id": material.json()["id"]},
     )
     assert rebuilt.status_code == 201
     assert rebuilt.json()["course_id"] == course_id
@@ -789,7 +789,7 @@ def test_note_courseware_generates_one_lesson_for_each_explicit_headword(client)
         "/api/content/note-items",
         headers=admin_headers,
         json={
-            "note_id": 1,
+            "note_id": opaque_id(client, 1),
             "item_type": "vocab",
             "item_title": "scraggly / scraggle / straggly",
             "raw_text": "scraggle",
@@ -810,7 +810,7 @@ def test_note_courseware_generates_one_lesson_for_each_explicit_headword(client)
         "/api/admin/learning-materials",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "material_code": "split-headwords",
             "title": "拆分词条教材",
             "material_type": "courseware",
@@ -832,7 +832,7 @@ def test_note_courseware_generates_one_lesson_for_each_explicit_headword(client)
     generated = client.post(
         "/api/admin/courseware/from-note-item",
         headers=admin_headers,
-        json={"note_item_id": item_id, "topic_id": 2, "material_id": material.json()["id"]},
+        json={"note_item_id": item_id, "topic_id": opaque_id(client, 2), "material_id": material.json()["id"]},
     )
     assert generated.status_code == 201
     result = generated.json()
@@ -872,7 +872,7 @@ def test_note_courseware_generates_one_lesson_for_each_explicit_headword(client)
     rebuilt = client.post(
         "/api/admin/courseware/from-note-item",
         headers=admin_headers,
-        json={"note_item_id": item_id, "topic_id": 2, "material_id": material.json()["id"]},
+        json={"note_item_id": item_id, "topic_id": opaque_id(client, 2), "material_id": material.json()["id"]},
     )
     assert rebuilt.status_code == 201
     assert [lesson["rebuilt"] for lesson in rebuilt.json()["lessons"]] == [True, True, True]

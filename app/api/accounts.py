@@ -4,6 +4,7 @@ from ipaddress import ip_address
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from app.api.dependencies import Admin, Db, User, current_user
+from app.api.opaque_ids import OpaqueIdRoute
 from app.core.security import issue_session
 from app.schemas import (
     AdminCreateInput,
@@ -17,7 +18,7 @@ from app.schemas import (
 from app.services.accounts import AccountService, LoginAuditService, public_user
 from app.services.wechat import WeChatCredentialError, WeChatServiceError
 
-router = APIRouter(tags=["accounts"])
+router = APIRouter(tags=["accounts"], route_class=OpaqueIdRoute)
 
 
 def login_ip(request: Request):

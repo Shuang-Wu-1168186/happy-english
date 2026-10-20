@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Query
 
 from app.api.dependencies import Admin, Db, User
+from app.api.opaque_ids import OpaqueIdRoute
 from app.schemas import (
     CoursewareBlockInput,
     CoursewareBlockSourcesInput,
@@ -22,7 +23,7 @@ from app.schemas import (
 from app.services.courseware import CoursewareBlockService, NoteCoursewareService
 from app.services.learning_catalog import LearningCatalogService
 
-router = APIRouter(tags=["learning-catalog"])
+router = APIRouter(tags=["learning-catalog"], route_class=OpaqueIdRoute)
 
 
 ADMIN_MANAGEMENT_MENU = [

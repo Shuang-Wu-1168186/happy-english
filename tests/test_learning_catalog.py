@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from app.services import learning_catalog
 from app.services.learning_catalog import LearningCatalogService
-from tests.conftest import sign_in
+from tests.conftest import opaque_id, sign_in
 
 
 def test_learning_catalog_shows_the_six_english_levels_and_only_ready_topics(client):
@@ -125,7 +125,7 @@ def test_admin_catalog_lists_newest_records_first(client):
             "/api/admin/learning/topics",
             headers=headers,
             json={
-                "module_id": 2,
+                "module_id": opaque_id(client, 2),
                 "topic_code": f"newest-list-topic-{suffix}",
                 "title": f"最新列表专题 {suffix}",
             },
@@ -150,7 +150,7 @@ def test_top_level_course_catalog_omits_hidden_topics(client):
         "/api/admin/learning/courses",
         headers=headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "course_code": "phonics-visible-course",
             "title": "自然拼读公开课程",
         },
@@ -160,7 +160,7 @@ def test_top_level_course_catalog_omits_hidden_topics(client):
         "/api/admin/learning/courses",
         headers=headers,
         json={
-            "topic_id": 1,
+            "topic_id": opaque_id(client, 1),
             "course_code": "textbook-hidden-course",
             "title": "暂不展示的课本课程",
         },
@@ -172,7 +172,7 @@ def test_top_level_course_catalog_omits_hidden_topics(client):
 
     assert response.status_code == 200
     assert [item["id"] for item in response.json()["items"]] == [public_course.json()["id"]]
-    assert client.get("/api/learning/courses?topic_id=1").status_code == 404
+    assert client.get(f"/api/learning/courses?topic_id={opaque_id(client, 1)}").status_code == 404
 
 
 def test_admin_can_maintain_topics_with_statistics_and_publication(client):
@@ -181,7 +181,7 @@ def test_admin_can_maintain_topics_with_statistics_and_publication(client):
         "/api/admin/learning/topics",
         headers=headers,
         json={
-            "module_id": 2,
+            "module_id": opaque_id(client, 2),
             "topic_code": "topic-maintenance",
             "title": "专题维护测试",
             "description": "用于验证专题后台维护。",
@@ -251,7 +251,7 @@ def test_admin_can_order_courses_within_a_topic_and_learners_receive_that_order(
         "/api/admin/learning/topics",
         headers=headers,
         json={
-            "module_id": 2,
+            "module_id": opaque_id(client, 2),
             "topic_code": "ordered-topic",
             "title": "课程排序测试",
         },
@@ -310,7 +310,7 @@ def test_admin_can_associate_existing_courses_with_a_topic(client):
         "/api/admin/learning/topics",
         headers=headers,
         json={
-            "module_id": 2,
+            "module_id": opaque_id(client, 2),
             "topic_code": "course-association-target",
             "title": "课程关联目标",
         },
@@ -341,7 +341,7 @@ def test_admin_can_associate_existing_courses_with_a_topic(client):
         "/api/admin/learning/topics",
         headers=headers,
         json={
-            "module_id": 2,
+            "module_id": opaque_id(client, 2),
             "topic_code": "course-association-second-target",
             "title": "课程关联第二专题",
         },
@@ -377,7 +377,7 @@ def test_admin_can_remove_an_unreferenced_course_and_keep_its_material(client):
         "/api/admin/learning/topics",
         headers=headers,
         json={
-            "module_id": 2,
+            "module_id": opaque_id(client, 2),
             "topic_code": "removable-course-topic",
             "title": "可移除课程专题",
         },
@@ -429,7 +429,7 @@ def test_admin_cannot_remove_a_course_with_learner_records(client):
         "/api/admin/learning/courses",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "course_code": "course-with-learner-record",
             "title": "已有学习记录的课程",
         },
@@ -457,7 +457,7 @@ def test_admin_topic_order_returns_linked_material_labels(client):
         "/api/admin/learning/topics",
         headers=headers,
         json={
-            "module_id": 2,
+            "module_id": opaque_id(client, 2),
             "topic_code": "linked-material-order-label",
             "title": "教材名称排序测试",
         },
@@ -505,7 +505,7 @@ def test_renaming_a_material_updates_an_inherited_linked_course_name(client):
     topic = client.post(
         "/api/admin/learning/topics",
         headers=headers,
-        json={"module_id": 2, "topic_code": "material-course-title", "title": "教材课程标题"},
+        json={"module_id": opaque_id(client, 2), "topic_code": "material-course-title", "title": "教材课程标题"},
     )
     assert topic.status_code == 201
     topic_id = topic.json()["id"]
@@ -576,7 +576,7 @@ def test_course_can_link_multiple_materials_and_preserves_their_lesson_order(cli
         "/api/admin/learning/topics",
         headers=headers,
         json={
-            "module_id": 2,
+            "module_id": opaque_id(client, 2),
             "topic_code": "multi-material-course",
             "title": "多教材课程",
         },
@@ -587,7 +587,7 @@ def test_course_can_link_multiple_materials_and_preserves_their_lesson_order(cli
         "/api/admin/learning/topics",
         headers=headers,
         json={
-            "module_id": 2,
+            "module_id": opaque_id(client, 2),
             "topic_code": "multi-material-linked-topic",
             "title": "可关联教材专题",
         },
@@ -773,7 +773,7 @@ def test_material_template_is_a_versioned_cross_client_renderer_contract(client)
         "/api/admin/learning/topics",
         headers=headers,
         json={
-            "module_id": 2,
+            "module_id": opaque_id(client, 2),
             "topic_code": "template-contract-topic",
             "title": "模板契约专题",
         },
@@ -936,7 +936,7 @@ def test_structured_lesson_has_seven_sections_and_publish_count_rules(client):
     topic = client.post(
         "/api/admin/learning/topics",
         headers=headers,
-        json={"module_id": 2, "topic_code": "structured-lesson-topic", "title": "通用课时测试"},
+        json={"module_id": opaque_id(client, 2), "topic_code": "structured-lesson-topic", "title": "通用课时测试"},
     )
     assert topic.status_code == 201
     material = client.post(

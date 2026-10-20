@@ -3,10 +3,11 @@
 from fastapi import APIRouter, Query
 
 from app.api.dependencies import Db, User
+from app.api.opaque_ids import OpaqueIdRoute
 from app.schemas import ProgressInput
 from app.services.progress import StudyProgressService
 
-router = APIRouter(tags=["study-progress"])
+router = APIRouter(tags=["study-progress"], route_class=OpaqueIdRoute)
 
 
 @router.get("/progress")

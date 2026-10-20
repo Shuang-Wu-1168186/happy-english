@@ -1,4 +1,4 @@
-from tests.conftest import sign_in
+from tests.conftest import opaque_id, sign_in
 
 
 def create_family_member(client, admin_headers):
@@ -44,7 +44,7 @@ def test_private_zone_features_and_family_items_are_scoped(client):
         "/api/admin/learning/courses",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "course_code": "family-locked-course",
             "title": "家庭会员课程",
             "access_policy": "benefit",
@@ -235,6 +235,7 @@ def test_private_zone_feature_config_is_admin_only(client):
     assert features.status_code == 200
     assert any(item["feature_code"] == "my-textbooks" for item in features.json()["items"])
 
+    material_target_url = f"/learning-materials/{opaque_id(client, 1)}"
     updated = client.put(
         "/api/admin/private-zone/features/my-textbooks",
         headers=admin_headers,
@@ -243,7 +244,7 @@ def test_private_zone_feature_config_is_admin_only(client):
             "title_en": "My Textbooks",
             "description": "收藏课本。",
             "route_key": "private-textbooks",
-            "target_url": "/learning-materials/1",
+            "target_url": material_target_url,
             "config": {"resource_types": ["material"], "material_types": ["textbook"]},
             "sort_order": 15,
             "is_enabled": 1,
@@ -251,7 +252,7 @@ def test_private_zone_feature_config_is_admin_only(client):
     )
     assert updated.status_code == 200
     assert updated.json()["title"] == "我的课本收藏"
-    assert updated.json()["target_url"] == "/learning-materials/1"
+    assert updated.json()["target_url"] == material_target_url
     assert updated.json()["config"]["material_types"] == ["textbook"]
 
     created = client.post(
@@ -301,7 +302,7 @@ def test_private_zone_personal_tools_and_admin_shortcuts_are_family_shared(clien
         "/api/admin/learning/courses",
         headers=admin_headers,
         json={
-            "topic_id": 2,
+            "topic_id": opaque_id(client, 2),
             "course_code": "personal-tools-course",
             "title": "我收藏的课程",
             "access_policy": "free",
