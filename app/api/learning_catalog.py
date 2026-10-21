@@ -25,6 +25,8 @@ from app.services.learning_catalog import LearningCatalogService
 
 router = APIRouter(tags=["learning-catalog"], route_class=OpaqueIdRoute)
 
+WEB_MODULE_TYPES = ("level", "resource")
+
 
 ADMIN_MANAGEMENT_MENU = [
     {
@@ -90,12 +92,33 @@ def generate_note_courseware(payload: NoteCoursewareGenerateInput, db: Db, admin
 
 @router.get("/learning/modules")
 def list_modules(db: Db, user: User):
+    # Keep the original route compatible with existing App clients.
     return LearningCatalogService(db).list_modules()
+
+
+@router.get("/learning/app/modules")
+def list_app_modules(db: Db, user: User):
+    return LearningCatalogService(db).list_modules()
+
+
+@router.get("/learning/web/modules")
+def list_web_modules(db: Db, user: User):
+    return LearningCatalogService(db).list_modules(WEB_MODULE_TYPES)
 
 
 @router.get("/learning/modules/{module_id}")
 def get_module(module_id: int, db: Db, user: User):
     return LearningCatalogService(db).get_module(module_id)
+
+
+@router.get("/learning/app/modules/{module_id}")
+def get_app_module(module_id: int, db: Db, user: User):
+    return LearningCatalogService(db).get_module(module_id)
+
+
+@router.get("/learning/web/modules/{module_id}")
+def get_web_module(module_id: int, db: Db, user: User):
+    return LearningCatalogService(db).get_module(module_id, WEB_MODULE_TYPES)
 
 
 @router.get("/learning/topics")

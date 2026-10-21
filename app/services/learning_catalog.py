@@ -184,8 +184,17 @@ class LearningCatalogTableService:
 class LearningModuleService(LearningCatalogTableService):
     dao_type = LearningModuleDAO
 
-    def list_public(self):
-        return [serialise_catalog(row) for row in self.dao.list_modules()]
+    def list_public(self, module_types=None):
+        return [
+            serialise_catalog(row)
+            for row in self.dao.list_modules(module_types)
+        ]
+
+    def require_public_for_client(self, module_id, module_types=None):
+        row = self.require_public(module_id)
+        if module_types and row.get("module_type") not in module_types:
+            raise HTTPException(404, "Learning catalogue record not found.")
+        return row
 
 
 class LearningTopicService(LearningCatalogTableService):
@@ -442,8 +451,8 @@ class LearningCatalogService:
         if image_path.stat().st_size >= 100 * 1024:
             raise HTTPException(422, "通勤微课配图必须小于 100KB。")
 
-    def list_modules(self):
-        return {"items": self.modules.list_public()}
+    def list_modules(self, module_types=None):
+        return {"items": self.modules.list_public(module_types)}
 
     def _public_topics(self):
         rows = (
@@ -698,8 +707,10 @@ class LearningCatalogService:
                 }
             )
 
-    def get_module(self, module_id):
-        result = serialise_catalog(self.modules.require_public(module_id))
+    def get_module(self, module_id, module_types=None):
+        result = serialise_catalog(
+            self.modules.require_public_for_client(module_id, module_types)
+        )
         result["topics"] = self.topics.list_public(module_id)
         return result
 

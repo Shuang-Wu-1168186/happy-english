@@ -28,8 +28,11 @@ class LearningCatalogTableDAO(BaseTableDAO):
 class LearningModuleDAO(LearningCatalogTableDAO):
     table = m.learning_module
 
-    def list_modules(self):
-        return self.list_published()
+    def list_modules(self, module_types=None):
+        conditions = []
+        if module_types:
+            conditions.append(self.table.c.module_type.in_(module_types))
+        return self.list_published(*conditions)
 
 
 class LearningTopicDAO(LearningCatalogTableDAO):

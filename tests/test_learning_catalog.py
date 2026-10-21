@@ -81,6 +81,35 @@ def test_admin_can_create_a_training_module(client):
     assert response.json()["module_type"] == "training"
 
 
+def test_web_and_app_module_catalogs_are_filtered_server_side(client):
+    headers = sign_in(client)
+    created = client.post(
+        "/api/admin/learning/modules",
+        headers=headers,
+        json={
+            "module_code": "server-filtered-training",
+            "module_type": "training",
+            "name": "服务端训练专区",
+            "name_en": "Server Filtered Training",
+            "route_key": "server-filtered-training",
+            "sort_order": 80,
+        },
+    )
+    assert created.status_code == 201
+    training_id = created.json()["id"]
+
+    web = client.get("/api/learning/web/modules", headers=headers)
+    assert web.status_code == 200
+    assert all(item["module_type"] != "training" for item in web.json()["items"])
+
+    app = client.get("/api/learning/app/modules", headers=headers)
+    assert app.status_code == 200
+    assert any(item["id"] == training_id for item in app.json()["items"])
+
+    assert client.get(f"/api/learning/web/modules/{training_id}", headers=headers).status_code == 404
+    assert client.get(f"/api/learning/app/modules/{training_id}", headers=headers).status_code == 200
+
+
 def test_learning_catalog_admin_builds_a_topic_and_course_hierarchy(client):
     headers = sign_in(client)
     modules = client.get("/api/learning/modules").json()["items"]
