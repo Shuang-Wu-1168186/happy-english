@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480" role="img" aria-labelledby="title desc">
+  <title id="title">Podcast listening</title>
+  <desc id="desc">A teal podcast illustration with headphones and a sound wave.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#163B43"/>
+      <stop offset="1" stop-color="#1F9D82"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="480" rx="36" fill="url(#bg)"/>
+  <circle cx="400" cy="215" r="92" fill="#F7C873"/>
+  <rect x="352" y="135" width="96" height="160" rx="48" fill="#163B43"/>
+  <path d="M278 220a122 122 0 0 1 244 0v42a28 28 0 0 1-28 28h-18v-80h18a92 92 0 0 0-184 0h18v80h-18a28 28 0 0 1-28-28z" fill="#F7C873"/>
+  <path d="M332 350h136M360 380h80" stroke="#F7C873" stroke-width="16" stroke-linecap="round"/>
+  <path d="M155 385h22v-66h18v66h22v-112h18v112h22v-42h18v42h22v-84h18v84h22v-32h18v32h22v-70h18v70h22v-44h18v44h22v-96h18v96h22v-30h18v30h22v-64h18v64h22" fill="none" stroke="#B8F0D9" stroke-width="8" stroke-linecap="round"/>
+</svg>
