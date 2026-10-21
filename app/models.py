@@ -585,6 +585,46 @@ Index(
     learning_module.c.sort_order,
 )
 
+learning_training_item = Table(
+    "learning_training_item",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "module_id",
+        Integer,
+        ForeignKey("learning_module.id", ondelete="RESTRICT"),
+        nullable=False,
+    ),
+    Column("resource_type", String(30), nullable=False, server_default=text("'podcast'")),
+    Column("item_code", String(100), nullable=False),
+    Column("title", String(200), nullable=False),
+    Column("title_en", String(200), nullable=True),
+    Column("summary", String(500), nullable=True),
+    Column("description", Text, nullable=True),
+    Column("cover_image_url", String(500), nullable=True),
+    Column("audio_url", String(500), nullable=True),
+    Column("subtitle_url", String(500), nullable=True),
+    Column("difficulty_code", String(50), nullable=True),
+    Column("duration_seconds", Integer, nullable=False, server_default=text("'0'")),
+    Column("episode_number", Integer, nullable=False, server_default=text("'0'")),
+    Column("speaker", String(200), nullable=True),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("is_published", Integer, nullable=False, server_default=text("'1'")),
+    Column("requires_membership", Integer, nullable=False, server_default=text("'0'")),
+    Column("created_by", Integer, nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_by", Integer, nullable=True),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("module_id", "item_code"),
+)
+Index(
+    "idx_learning_training_item_public_order",
+    learning_training_item.c.module_id,
+    learning_training_item.c.resource_type,
+    learning_training_item.c.is_published,
+    learning_training_item.c.sort_order,
+)
+
 learning_topic = Table(
     "learning_topic",
     metadata,

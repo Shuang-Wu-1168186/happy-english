@@ -35,6 +35,56 @@ class LearningModuleDAO(LearningCatalogTableDAO):
         return self.list_published(*conditions)
 
 
+class LearningTrainingItemDAO(LearningCatalogTableDAO):
+    table = m.learning_training_item
+
+    def _training_module_ids(self, published_only=True):
+        conditions = [m.learning_module.c.module_type == "training"]
+        if published_only:
+            conditions.append(m.learning_module.c.is_published == 1)
+        return select(m.learning_module.c.id).where(*conditions)
+
+    def list_items(self, module_id=None, resource_type=None):
+        conditions = [self.table.c.module_id.in_(self._training_module_ids())]
+        if module_id is not None:
+            conditions.append(self.table.c.module_id == module_id)
+        if resource_type:
+            conditions.append(self.table.c.resource_type == resource_type)
+        return self.list_published(*conditions)
+
+    def list_admin_items(
+        self,
+        q="",
+        module_id=None,
+        resource_type=None,
+        is_published=None,
+        page=1,
+        page_size=20,
+    ):
+        conditions = [self.table.c.module_id.in_(self._training_module_ids(False))]
+        if q:
+            conditions.append(
+                or_(
+                    self.table.c.item_code.ilike(f"%{q}%"),
+                    self.table.c.title.ilike(f"%{q}%"),
+                    self.table.c.title_en.ilike(f"%{q}%"),
+                    self.table.c.summary.ilike(f"%{q}%"),
+                )
+            )
+        if module_id is not None:
+            conditions.append(self.table.c.module_id == module_id)
+        if resource_type:
+            conditions.append(self.table.c.resource_type == resource_type)
+        if is_published is not None:
+            conditions.append(self.table.c.is_published == is_published)
+        return self.paginate_where(
+            *conditions,
+            order_by=self.admin_ordering(),
+            page=page,
+            page_size=page_size,
+        )
+
+
 class LearningTopicDAO(LearningCatalogTableDAO):
     table = m.learning_topic
 
@@ -235,6 +285,7 @@ class LearningTopicCourseDAO(BaseTableDAO):
 
 LEARNING_CATALOG_TABLE_DAO_TYPES = {
     m.learning_module.name: LearningModuleDAO,
+    m.learning_training_item.name: LearningTrainingItemDAO,
     m.learning_topic.name: LearningTopicDAO,
     m.learning_template.name: LearningTemplateDAO,
     m.learning_material.name: LearningMaterialDAO,

@@ -340,6 +340,28 @@ class LearningTopicInput(Input):
     is_published: Literal[0, 1] = 1
 
 
+class LearningTrainingItemInput(Input):
+    """One playable item in a training module, such as a podcast episode."""
+
+    module_id: int = Field(gt=0)
+    resource_type: Literal["podcast", "speaking"] = "podcast"
+    item_code: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,99}$")
+    title: str = Field(min_length=1, max_length=200)
+    title_en: str = Field(default="", max_length=200)
+    summary: str = Field(default="", max_length=500)
+    description: str = Field(default="", max_length=50000)
+    cover_image_url: str = Field(default="", max_length=500)
+    audio_url: str = Field(default="", max_length=500)
+    subtitle_url: str = Field(default="", max_length=500)
+    difficulty_code: str = Field(default="", max_length=50)
+    duration_seconds: int = Field(default=0, ge=0, le=86400)
+    episode_number: int = Field(default=0, ge=0, le=100000)
+    speaker: str = Field(default="", max_length=200)
+    sort_order: int = 0
+    is_published: Literal[0, 1] = 1
+    requires_membership: Literal[0, 1] = 0
+
+
 class PublicationInput(Input):
     is_published: Literal[0, 1]
 

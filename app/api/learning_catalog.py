@@ -1,5 +1,7 @@
 """HTTP controllers for the learning module → topic → course catalogue."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Query
 
 from app.api.dependencies import Admin, Db, User
@@ -11,6 +13,7 @@ from app.schemas import (
     LearningMaterialInput,
     LearningMaterialLessonInput,
     LearningModuleInput,
+    LearningTrainingItemInput,
     LearningLessonSectionsInput,
     LearningTemplateInput,
     LearningTopicInput,
@@ -114,6 +117,21 @@ def get_module(module_id: int, db: Db, user: User):
 @router.get("/learning/app/modules/{module_id}")
 def get_app_module(module_id: int, db: Db, user: User):
     return LearningCatalogService(db).get_module(module_id)
+
+
+@router.get("/learning/app/training-items")
+def list_app_training_items(
+    db: Db,
+    user: User,
+    module_id: int | None = Query(default=None, gt=0),
+    resource_type: Literal["podcast", "speaking"] | None = None,
+):
+    return LearningCatalogService(db).list_training_items(module_id, resource_type)
+
+
+@router.get("/learning/app/training-items/{item_id}")
+def get_app_training_item(item_id: int, db: Db, user: User):
+    return LearningCatalogService(db).get_training_item(item_id)
 
 
 @router.get("/learning/web/modules/{module_id}")
@@ -248,6 +266,41 @@ def list_admin_topics(
 @router.get("/admin/learning-topics/{topic_id}")
 def get_admin_topic(topic_id: int, db: Db, admin: Admin):
     return LearningCatalogService(db).get_admin_topic(topic_id)
+
+
+@router.get("/admin/learning-training-items")
+def list_admin_training_items(
+    db: Db,
+    admin: Admin,
+    q: str = Query(default="", max_length=200),
+    module_id: int | None = Query(default=None, gt=0),
+    resource_type: Literal["podcast", "speaking"] | None = None,
+    is_published: int | None = Query(default=None, ge=0, le=1),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+):
+    return LearningCatalogService(db).list_admin_training_items(
+        q, module_id, resource_type, is_published, page, page_size
+    )
+
+
+@router.post("/admin/learning-training-items", status_code=201)
+def create_training_item(
+    payload: LearningTrainingItemInput, db: Db, admin: Admin
+):
+    return LearningCatalogService(db).save_training_item(payload, admin)
+
+
+@router.put("/admin/learning-training-items/{item_id}")
+def update_training_item(
+    item_id: int, payload: LearningTrainingItemInput, db: Db, admin: Admin
+):
+    return LearningCatalogService(db).save_training_item(payload, admin, item_id)
+
+
+@router.delete("/admin/learning-training-items/{item_id}", status_code=204)
+def delete_training_item(item_id: int, db: Db, admin: Admin):
+    LearningCatalogService(db).delete_training_item(item_id)
 
 
 @router.get("/admin/learning-materials")

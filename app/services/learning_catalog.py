@@ -14,6 +14,7 @@ from app.dao.learning_catalog import (
     LearningMaterialDAO,
     LearningMaterialLessonDAO,
     LearningModuleDAO,
+    LearningTrainingItemDAO,
     LearningTemplateDAO,
     LearningTopicCourseDAO,
     LearningTopicDAO,
@@ -197,6 +198,34 @@ class LearningModuleService(LearningCatalogTableService):
         return row
 
 
+class LearningTrainingItemService(LearningCatalogTableService):
+    dao_type = LearningTrainingItemDAO
+
+    def list_public(self, module_id=None, resource_type=None):
+        return [
+            serialise_catalog(row)
+            for row in self.dao.list_items(module_id, resource_type)
+        ]
+
+    def require_public_for_client(self, item_id):
+        row = self.require_public(item_id)
+        module = (
+            self.db.execute(
+                select(m.learning_module)
+                .where(
+                    m.learning_module.c.id == row["module_id"],
+                    m.learning_module.c.module_type == "training",
+                    m.learning_module.c.is_published == 1,
+                )
+            )
+            .mappings()
+            .first()
+        )
+        if not module:
+            raise HTTPException(404, "Learning catalogue record not found.")
+        return row
+
+
 class LearningTopicService(LearningCatalogTableService):
     dao_type = LearningTopicDAO
 
@@ -273,6 +302,7 @@ class LearningTopicCourseService:
 
 LEARNING_CATALOG_TABLE_SERVICE_TYPES = {
     "learning_module": LearningModuleService,
+    "learning_training_item": LearningTrainingItemService,
     "learning_topic": LearningTopicService,
     "learning_template": LearningTemplateService,
     "learning_material": LearningMaterialService,
@@ -289,6 +319,7 @@ class LearningCatalogService:
     def __init__(self, db):
         self.db = db
         self.modules = LearningModuleService(db)
+        self.training_items = LearningTrainingItemService(db)
         self.topics = LearningTopicService(db)
         self.templates = LearningTemplateService(db)
         self.materials = LearningMaterialService(db)
@@ -714,6 +745,18 @@ class LearningCatalogService:
         result["topics"] = self.topics.list_public(module_id)
         return result
 
+    def list_training_items(self, module_id=None, resource_type=None):
+        if module_id is not None:
+            self.modules.require_public_for_client(module_id, ("training",))
+        return {
+            "items": self.training_items.list_public(module_id, resource_type)
+        }
+
+    def get_training_item(self, item_id):
+        return serialise_catalog(
+            self.training_items.require_public_for_client(item_id)
+        )
+
     def list_topics(self, module_id=None):
         if module_id is not None:
             self.modules.require_public(module_id)
@@ -1078,6 +1121,27 @@ class LearningCatalogService:
             ],
         }
 
+    def list_admin_training_items(
+        self,
+        q="",
+        module_id=None,
+        resource_type=None,
+        is_published=None,
+        page=1,
+        page_size=20,
+    ):
+        if module_id is not None:
+            module = self.modules.require_any(module_id)
+            if module["module_type"] != "training":
+                raise HTTPException(422, "训练资源必须归属于 training 模块。")
+        result = self.training_items.dao.list_admin_items(
+            q, module_id, resource_type, is_published, page, page_size
+        )
+        return {
+            **result,
+            "items": [serialise_catalog(row) for row in result["items"]],
+        }
+
     def _course_order_display_entries(self, courses):
         """Return course order entries with their linked material labels."""
         return [self.course_summary(course) for course in courses]
@@ -1190,6 +1254,29 @@ class LearningCatalogService:
             ("name_en", "description", "icon", "color", "route_key"),
         )
         row = self.modules.save(module_id, values, actor)
+        self.db.commit()
+        return serialise_catalog(row)
+
+    def save_training_item(
+        self, payload: s.LearningTrainingItemInput, actor, item_id=None
+    ):
+        module = self.modules.require_any(payload.module_id)
+        if module["module_type"] != "training":
+            raise HTTPException(422, "训练资源必须归属于 training 模块。")
+        values = self._none_when_blank(
+            payload.model_dump(),
+            (
+                "title_en",
+                "summary",
+                "description",
+                "cover_image_url",
+                "audio_url",
+                "subtitle_url",
+                "difficulty_code",
+                "speaker",
+            ),
+        )
+        row = self.training_items.save(item_id, values, actor)
         self.db.commit()
         return serialise_catalog(row)
 
@@ -1511,9 +1598,18 @@ class LearningCatalogService:
 
     def delete_module(self, module_id):
         self.modules.require_any(module_id)
+        if self.training_items.dao.count(
+            self.training_items.dao.table.c.module_id == module_id
+        ):
+            raise HTTPException(409, "Delete this module's training items before deleting the module.")
         if self.topics.dao.count(self.topics.dao.table.c.module_id == module_id):
             raise HTTPException(409, "Delete this module's topics before deleting the module.")
         self.modules.delete(module_id)
+        self.db.commit()
+
+    def delete_training_item(self, item_id):
+        self.training_items.require_any(item_id)
+        self.training_items.delete(item_id)
         self.db.commit()
 
     def delete_topic(self, topic_id):
