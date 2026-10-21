@@ -327,6 +327,7 @@ if [[ "$post_content" == true ]]; then
   run_once "20261011-configure-everyday-activities-membership" "sql/20261011_configure_everyday_activities_english_membership_access.sql"
   run_once "20261011-configure-shopping-membership" "sql/20261011_configure_shopping_english_membership_access.sql"
   run_once "20261011-configure-software-workplace-membership" "sql/20261011_configure_software_workplace_english_membership_access.sql"
+  run_once "20261021-configure-ket-membership" "sql/20261021_configure_ket_membership_access.sql"
 else
   echo "[info] Catalogue-dependent configuration is pending. Re-run with --post-content after importing the generated content package."
 fi
