@@ -25,7 +25,9 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
     )
-    trusted_hosts: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1", "testserver"])
+    trusted_hosts: list[str] = Field(
+        default_factory=lambda: ["localhost", "127.0.0.1", "10.0.2.2", "testserver"]
+    )
     # None keeps documentation enabled during development and disabled in production.
     api_docs_enabled: bool | None = None
     static_dir: Path = ROOT / "data" / "static"
