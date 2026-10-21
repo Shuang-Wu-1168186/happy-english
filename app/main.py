@@ -1,11 +1,14 @@
 import hmac
+import json
 import logging
+import re
 from contextlib import asynccontextmanager
 from time import perf_counter
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
@@ -35,6 +38,122 @@ from app.services.wechat import WeChatMiniProgramClient
 
 
 logger = logging.getLogger(__name__)
+
+_REQUEST_LOG_MAX_BYTES = 64 * 1024
+_REQUEST_LOG_MAX_TEXT = 4096
+_SENSITIVE_LOG_KEY = re.compile(
+    r"(?:password|passwd|secret|token|authorization|cookie|csrf|api[_-]?key|access[_-]?key|signature)",
+    re.IGNORECASE,
+)
+
+
+def _redact_log_value(value, key=None):
+    """Make request/response logging useful without copying credentials to logs."""
+    if key and _SENSITIVE_LOG_KEY.search(str(key)):
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {str(item_key): _redact_log_value(item_value, item_key) for item_key, item_value in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_log_value(item) for item in value]
+    if isinstance(value, str) and len(value) > _REQUEST_LOG_MAX_TEXT:
+        return f"{value[:_REQUEST_LOG_MAX_TEXT]}...[truncated]"
+    return value
+
+
+def _json_for_log(value):
+    try:
+        return json.dumps(_redact_log_value(value), ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return json.dumps({"value": str(value)}, ensure_ascii=False)
+
+
+async def _request_input_for_log(request: Request):
+    """Capture structured request input while skipping binary upload bodies."""
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
+    result = {
+        "path_params": dict(request.path_params),
+        "query": {key: values for key, values in parse_qs(request.url.query, keep_blank_values=True).items()},
+    }
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        return result
+    content_length = int(request.headers.get("content-length", "0") or 0)
+    if content_type.startswith("multipart/"):
+        result["body"] = {
+            "omitted": "multipart body",
+            "content_type": content_type,
+            "content_length": content_length,
+        }
+        return result
+    if content_length > _REQUEST_LOG_MAX_BYTES:
+        result["body"] = {
+            "omitted": "request body too large",
+            "content_type": content_type,
+            "content_length": content_length,
+        }
+        return result
+    body = await request.body()
+    if not body:
+        result["body"] = None
+        return result
+    if len(body) > _REQUEST_LOG_MAX_BYTES:
+        result["body"] = {
+            "omitted": "request body too large",
+            "content_type": content_type,
+            "content_length": len(body),
+        }
+        return result
+    if content_type == "application/json" or content_type.endswith("+json"):
+        try:
+            result["body"] = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            result["body"] = {"omitted": "invalid JSON body", "bytes": len(body)}
+    elif content_type == "application/x-www-form-urlencoded":
+        result["body"] = {key: values for key, values in parse_qs(body.decode("utf-8"), keep_blank_values=True).items()}
+    elif content_type.startswith("text/"):
+        result["body"] = body.decode("utf-8", errors="replace")
+    else:
+        result["body"] = {"omitted": "binary body", "content_type": content_type, "bytes": len(body)}
+    return result
+
+
+def _response_output_for_log(response):
+    """Capture JSON/text responses; describe streamed files without reading them."""
+    content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+    body = getattr(response, "body", None)
+    if body is None:
+        return {"omitted": "streaming response", "content_type": content_type}
+    if content_type == "application/json" or content_type.endswith("+json"):
+        try:
+            return json.loads(body[:_REQUEST_LOG_MAX_BYTES].decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return {"omitted": "response body too large or invalid JSON", "bytes": len(body)}
+    if content_type.startswith("text/"):
+        return body[:_REQUEST_LOG_MAX_BYTES].decode("utf-8", errors="replace")
+    return {"omitted": "binary response", "content_type": content_type, "bytes": len(body)}
+
+
+async def _materialise_text_response_for_log(response):
+    """Read JSON/text streaming responses once, then return an equivalent response."""
+    content_type = response.headers.get("content-type", "").split(";", 1)[0].lower()
+    if getattr(response, "body", None) is not None or not (
+        content_type == "application/json"
+        or content_type.endswith("+json")
+        or content_type.startswith("text/")
+    ):
+        return response
+    body_iterator = getattr(response, "body_iterator", None)
+    if body_iterator is None:
+        return response
+    chunks = []
+    async for chunk in body_iterator:
+        chunks.append(chunk.encode("utf-8") if isinstance(chunk, str) else chunk)
+    body = b"".join(chunks)
+    return Response(
+        content=body,
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        background=getattr(response, "background", None),
+    )
 
 
 def create_app(settings: Settings | None = None, engine=None):
@@ -73,9 +192,17 @@ def create_app(settings: Settings | None = None, engine=None):
         context_token = bind_request_id(request_id)
         started_at = perf_counter()
         response = None
+        response_output = None
         is_api_request = request.url.path.startswith("/api/")
         try:
             request.state.session = read_session(request)
+            request_input = await _request_input_for_log(request)
+            logger.info(
+                "http.request.input method=%s path=%s data=%s",
+                request.method,
+                request.url.path,
+                _json_for_log(request_input),
+            )
             if request.method not in {"GET", "HEAD", "OPTIONS"}:
                 expected = request.state.session.get("csrf", "")
                 supplied = request.headers.get("X-CSRF-Token", "")
@@ -87,6 +214,8 @@ def create_app(settings: Settings | None = None, engine=None):
                     response = await call_next(request)
             else:
                 response = await call_next(request)
+            response = await _materialise_text_response_for_log(response)
+            response_output = _response_output_for_log(response)
             if is_api_request:
                 response.headers["Cache-Control"] = "no-store"
             response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -111,6 +240,15 @@ def create_app(settings: Settings | None = None, engine=None):
             )
             raise
         finally:
+            if response is not None:
+                duration_ms = (perf_counter() - started_at) * 1000
+                logger.info(
+                    "http.request.output method=%s path=%s status=%d data=%s",
+                    request.method,
+                    request.url.path,
+                    response.status_code,
+                    _json_for_log(response_output if response_output is not None else _response_output_for_log(response)),
+                )
             if response is not None and is_api_request:
                 duration_ms = (perf_counter() - started_at) * 1000
                 message = "http.request.completed"
