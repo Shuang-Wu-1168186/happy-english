@@ -231,6 +231,9 @@ else
   mark_existing "20260926-seed-put-aside-courseware"
 fi
 
+run_once "20261021-learning-module-type" "sql/20261021_add_learning_module_type.sql"
+run_once "20261021-seed-podcast-training-module" "sql/20261021_seed_podcast_training_module.sql"
+
 if has_table "learning_course_material"; then
   mark_existing "20260927-course-material-mapping"
 else

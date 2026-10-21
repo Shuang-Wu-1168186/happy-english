@@ -4,6 +4,7 @@
 CREATE TABLE IF NOT EXISTS `learning_module` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '学习区域主键ID',
     `module_code` VARCHAR(80) NOT NULL COMMENT '稳定业务编码',
+    `module_type` VARCHAR(20) NOT NULL DEFAULT 'level' COMMENT '模块维度：level-分级课程，training-训练专区，resource-资源入口',
     `name` VARCHAR(100) NOT NULL COMMENT '学习区域名称',
     `name_en` VARCHAR(100) DEFAULT NULL COMMENT '英文名称',
     `description` VARCHAR(500) DEFAULT NULL COMMENT '学习区域简介',

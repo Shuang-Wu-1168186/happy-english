@@ -177,6 +177,7 @@ def catalogue_tables(
 ) -> list[TemporaryTable]:
     module_fields = (
         "module_code",
+        "module_type",
         "name",
         "name_en",
         "description",
@@ -945,6 +946,7 @@ def catalogue_tables(
             "tmp_release_modules",
             (
                 ("module_code", "VARCHAR(80) NOT NULL PRIMARY KEY"),
+                ("module_type", "VARCHAR(20) NOT NULL"),
                 ("name", "VARCHAR(100) NOT NULL"),
                 ("name_en", "VARCHAR(100) NULL"),
                 ("description", "VARCHAR(500) NULL"),
@@ -1285,11 +1287,11 @@ def emit_target_upserts(
             "START TRANSACTION;",
             "",
             "INSERT INTO `learning_module`",
-            "(`module_code`,`name`,`name_en`,`description`,`icon`,`color`,`route_key`,`sort_order`,`is_published`,`created_by`,`created_at`,`updated_by`,`updated_at`)",
-            "SELECT `module_code`,`name`,`name_en`,`description`,`icon`,`color`,`route_key`,`sort_order`,`is_published`,@release_actor_id,`created_at`,@release_actor_id,`updated_at`",
+            "(`module_code`,`module_type`,`name`,`name_en`,`description`,`icon`,`color`,`route_key`,`sort_order`,`is_published`,`created_by`,`created_at`,`updated_by`,`updated_at`)",
+            "SELECT `module_code`,`module_type`,`name`,`name_en`,`description`,`icon`,`color`,`route_key`,`sort_order`,`is_published`,@release_actor_id,`created_at`,@release_actor_id,`updated_at`",
             "FROM `tmp_release_modules`",
             "ON DUPLICATE KEY UPDATE",
-            "  `name`=VALUES(`name`), `name_en`=VALUES(`name_en`), `description`=VALUES(`description`),",
+            "  `module_type`=VALUES(`module_type`), `name`=VALUES(`name`), `name_en`=VALUES(`name_en`), `description`=VALUES(`description`),",
             "  `icon`=VALUES(`icon`), `color`=VALUES(`color`), `route_key`=VALUES(`route_key`),",
             "  `sort_order`=VALUES(`sort_order`), `is_published`=VALUES(`is_published`),",
             "  `updated_by`=@release_actor_id, `updated_at`=VALUES(`updated_at`);",

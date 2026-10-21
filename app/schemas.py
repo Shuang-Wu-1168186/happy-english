@@ -318,6 +318,7 @@ class PersonalNoteInput(Input):
 
 class LearningModuleInput(Input):
     module_code: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,79}$")
+    module_type: Literal["level", "training", "resource"] = "level"
     name: str = Field(min_length=1, max_length=100)
     name_en: str = Field(default="", max_length=100)
     description: str = Field(default="", max_length=500)

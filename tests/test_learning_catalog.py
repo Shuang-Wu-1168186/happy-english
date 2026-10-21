@@ -58,6 +58,29 @@ def test_learning_catalog_shows_the_six_english_levels_and_only_ready_topics(cli
     ]
 
 
+def test_admin_can_create_a_training_module(client):
+    headers = sign_in(client)
+
+    response = client.post(
+        "/api/admin/learning/modules",
+        headers=headers,
+        json={
+            "module_code": "podcast-listening",
+            "module_type": "training",
+            "name": "Podcast 听力训练",
+            "name_en": "Podcast Listening",
+            "description": "用真实语音提升听力。",
+            "icon": "🎧",
+            "color": "#1F9D82",
+            "route_key": "podcast-listening",
+            "sort_order": 70,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["module_type"] == "training"
+
+
 def test_learning_catalog_admin_builds_a_topic_and_course_hierarchy(client):
     headers = sign_in(client)
     modules = client.get("/api/learning/modules").json()["items"]

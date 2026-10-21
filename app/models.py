@@ -562,6 +562,7 @@ learning_module = Table(
     metadata,
     Column("id", Integer, primary_key=True),
     Column("module_code", String(80), nullable=False),
+    Column("module_type", String(20), nullable=False, server_default=text("'level'")),
     Column("name", String(100), nullable=False),
     Column("name_en", String(100), nullable=True),
     Column("description", String(500), nullable=True),
@@ -577,6 +578,12 @@ learning_module = Table(
     UniqueConstraint("module_code"),
 )
 Index("idx_learning_module_published_order", learning_module.c.is_published, learning_module.c.sort_order)
+Index(
+    "idx_learning_module_type_published_order",
+    learning_module.c.module_type,
+    learning_module.c.is_published,
+    learning_module.c.sort_order,
+)
 
 learning_topic = Table(
     "learning_topic",
