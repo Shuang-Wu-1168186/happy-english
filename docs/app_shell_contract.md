@@ -18,7 +18,7 @@
 | `GET /api/learning/app/collections/{collection_code}` | 返回通用资源集合和 `open_content` 动作。 |
 | `GET/POST/PUT/DELETE /api/admin/app-presentation-configs` | 管理模块、专题、集合和页面槽位的展示配置。 |
 | `GET /api/analytics/policy` | 获取内置和后台注册的埋点事件字典。 |
-| `POST /api/analytics/events:batch` | 接收认证用户的幂等批量埋点。 |
+| `POST /api/analytics/events:batch` | 生产环境由 Nginx 直接记录 JSON 请求体并返回 `202`；不进入 Python。 |
 | `GET/POST/PUT /api/admin/analytics/event-definitions` | 管理未来业务事件及允许属性。 |
 | `GET/POST/PUT/DELETE /api/learning/family-groups/{group_id}/shortcuts` | 家庭拥有者和家庭管理员自助维护快捷入口。 |
 
@@ -32,6 +32,9 @@
 
 ## 埋点隐私与可靠性
 
-事件使用 UUID 去重，支持离线重试和批量上传。服务端只接受事件字典中注册的事件名和标量属性，并拒绝笔记正文、原文内容、音频、邀请码、凭证和个人资料字段。埋点请求体和 `analytics_event` SQL 参数不会写入应用日志。
+Android 每次上报使用 UUID、批量结构和已登记的事件字段。生产环境的请求体由
+Nginx 追加到独立 JSON Lines 文件，后续可按 `event_id` 去重并离线汇总；它不会进入
+Python、应用日志或 `analytics_event` 表。开发环境保留 Python 端点，便于契约测试和
+本地调试。客户端不得发送笔记正文、原文内容、音频、邀请码、凭证和个人资料字段。
 
 支付、会员权益、课程完成等最终业务口径仍应由服务端业务事务产生；客户端埋点用于页面、入口、动作和学习漏斗分析。

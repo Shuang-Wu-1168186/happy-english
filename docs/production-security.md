@@ -34,14 +34,31 @@ Install the files in `deploy/nginx` as follows:
 | `00_happy_english_security.conf` | `/etc/nginx/conf.d/00_happy_english_security.conf` |
 | `happy_english_security_headers.conf` | `/etc/nginx/snippets/happy_english_security_headers.conf` |
 | `happy_english_api_proxy.conf` | `/etc/nginx/snippets/happy_english_api_proxy.conf` |
+| `happy_english_analytics_ingest.conf` | `/etc/nginx/snippets/happy_english_analytics_ingest.conf` |
+| `perl/HappyEnglishAnalytics.pm` | `/etc/nginx/perl/HappyEnglishAnalytics.pm` |
 | `happy_english.conf` | `/etc/nginx/conf.d/happy_english.conf` |
+| `deploy/logrotate/happy_english_analytics` | `/etc/logrotate.d/happy_english_analytics` |
 | `deploy/systemd/happy_english.service` | `/etc/systemd/system/happy_english.service` |
 
 Test Nginx with `nginx -t` before reloading it. The systemd unit binds
 Uvicorn to `127.0.0.1`; only Nginx should accept public API traffic.
-The Nginx snippets also keep request bodies out of access logs, enforce the
-HTTPS security headers, and rate-limit authentication, upload, and audio
-generation endpoints.
+The Nginx snippets keep normal request bodies out of access logs, enforce the
+HTTPS security headers, and rate-limit authentication, upload, audio
+generation, and analytics ingestion endpoints.
+
+## Analytics ingestion log
+
+In production, `POST /api/analytics/events:batch` stops at Nginx.  Its bounded
+JSON request body is appended to `/home/admin/logs/happy-english-analytics.log`
+as one JSON Lines record, and the response is `202 {"accepted":true}` with
+`X-Analytics-Ingest: nginx`.  It is never proxied to Uvicorn or processed by
+Python.  The embedded Nginx handler only causes the request body to be read;
+the `access_log` directive performs the write.
+
+The file is retained for 14 daily rotations by the supplied logrotate rule.
+Inspect a readable event body with `jq -r '.body' /home/admin/logs/happy-english-analytics.log`.
+Do not add credentials, learner text, notes, audio, contact details, or invite
+codes to event payloads: this file intentionally preserves the original body.
 
 ## Session revocation migration
 
