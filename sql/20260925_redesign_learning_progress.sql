@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS `learning_study_session` (
     `user_id` BIGINT UNSIGNED NOT NULL COMMENT '学习用户ID',
     `progress_id` BIGINT UNSIGNED NOT NULL COMMENT '所属课程学习进度ID',
     `course_id` BIGINT UNSIGNED NOT NULL COMMENT '学习课程ID，便于按课程汇总',
-    `platform` VARCHAR(30) NOT NULL DEFAULT 'web' COMMENT '学习端：web、mini_program',
+    `platform` VARCHAR(30) NOT NULL DEFAULT 'web' COMMENT '学习端：web、mini_program、android',
     `entry_source` VARCHAR(100) DEFAULT NULL COMMENT '进入来源，例如 home、recommendation',
     `started_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '会话开始时间',
     `last_heartbeat_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最后活跃时间',

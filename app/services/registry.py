@@ -1,6 +1,8 @@
 """Registry proving that every mapped table has a corresponding service."""
 
 from app.services.accounts import LoginAuditService, UserService
+from app.services.analytics import ANALYTICS_TABLE_SERVICE_TYPES
+from app.services.app_shell import APP_SHELL_TABLE_SERVICE_TYPES
 from app.services.content import CONTENT_TABLE_SERVICE_TYPES
 from app.services.courseware import COURSEWARE_TABLE_SERVICE_TYPES
 from app.services.learning_catalog import LEARNING_CATALOG_TABLE_SERVICE_TYPES
@@ -12,6 +14,8 @@ from app.services.progress import StudyProgressService
 from app.services.private_zone import PRIVATE_ZONE_TABLE_SERVICE_TYPES
 
 TABLE_SERVICE_TYPES = {
+    **ANALYTICS_TABLE_SERVICE_TYPES,
+    **APP_SHELL_TABLE_SERVICE_TYPES,
     **CONTENT_TABLE_SERVICE_TYPES,
     **COURSEWARE_TABLE_SERVICE_TYPES,
     **LEARNING_CATALOG_TABLE_SERVICE_TYPES,

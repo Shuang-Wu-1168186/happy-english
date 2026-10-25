@@ -63,6 +63,11 @@ class ContentTableService:
         self.db = db
         self.dao = self.dao_type(db)
 
+    def visibility_conditions(self, admin=False):
+        if admin:
+            return self.dao.admin_visible_conditions()
+        return self.dao.visible_conditions()
+
     def list(
         self,
         q="",
@@ -72,6 +77,7 @@ class ContentTableService:
         page_size=20,
         language_register="",
         scenario="",
+        admin=False,
     ):
         result = self.dao.list_content(
             q,
@@ -81,11 +87,15 @@ class ContentTableService:
             page_size,
             language_register,
             scenario,
+            visibility_conditions=self.visibility_conditions(admin),
         )
         return {**result, "items": [serialise_content(row) for row in result["items"]]}
 
-    def require(self, item_id):
-        row = self.dao.get_published(item_id)
+    def require(self, item_id, admin=False):
+        row = self.dao.get_published(
+            item_id,
+            visibility_conditions=self.visibility_conditions(admin),
+        )
         if not row:
             raise HTTPException(404, "Content not found.")
         return row
@@ -229,6 +239,10 @@ class ContentService:
     def table_service(self, table_name):
         return CONTENT_TABLE_SERVICE_TYPES[table_name](self.db)
 
+    @staticmethod
+    def _is_admin(user):
+        return bool(user and user.get("role") == "admin")
+
     def module_counts(self):
         counts = {}
         for resource, service_type in RESOURCE_SERVICE_TYPES.items():
@@ -248,6 +262,7 @@ class ContentService:
         scenario="",
         user=None,
     ):
+        admin = self._is_admin(user)
         result = self.resource_service(resource).list(
             q,
             category,
@@ -256,20 +271,26 @@ class ContentService:
             page_size,
             language_register,
             scenario,
+            admin=admin,
         )
         if resource == "note-items" and user:
             result["items"] = self._attach_frequency(result["items"], user["id"])
         return result
 
     def get_content(self, resource, item_id, user=None):
+        admin = self._is_admin(user)
         service = self.resource_service(resource)
-        row = service.require(item_id)
+        row = service.require(item_id, admin=admin)
         result = serialise_content(row)
         frequency_service = NoteItemFrequencyService(self.db) if user else None
         if resource == "note-items" and frequency_service:
             result["frequency_count"] = frequency_service.count_for_item(user["id"], item_id)
         parent_id = row.get("note_id") if resource == "note-items" else None
-        neighbors = service.dao.neighbor_ids(item_id, parent_id)
+        neighbors = service.dao.neighbor_ids(
+            item_id,
+            parent_id,
+            visibility_conditions=service.visibility_conditions(admin),
+        )
         if neighbors:
             result.update(
                 previous_id=neighbors["previous_id"],
@@ -279,7 +300,11 @@ class ContentService:
             result.update(previous_id=None, next_id=None)
         for key, table_name, foreign_key in CHILDREN.get(resource, []):
             child_service = self.table_service(table_name)
-            rows = child_service.dao.list_for_parent(foreign_key, item_id)
+            rows = child_service.dao.list_for_parent(
+                foreign_key,
+                item_id,
+                visibility_conditions=child_service.visibility_conditions(admin),
+            )
             children = [serialise_content(child) for child in rows]
             if resource == "notes" and key == "items" and user:
                 children = self._attach_frequency(children, user["id"])
@@ -319,7 +344,7 @@ class ContentService:
                     "classification_source": "manual",
                 }
         if resource == "note-items":
-            self.resource_service("notes").require(values["note_id"])
+            self.resource_service("notes").require(values["note_id"], admin=True)
         if resource == "interviews":
             self.resource_service("interview-categories").require(values["category_id"])
 
@@ -342,7 +367,7 @@ class ContentService:
                 values["created_by"] = admin["id"]
             item_id = service.dao.insert(values)
         else:
-            current = service.require(item_id)
+            current = service.require(item_id, admin=True)
             if resource == "note-items" and manual_classification:
                 try:
                     current_scenarios = json.loads(current.get("usage_scenarios_json") or "[]")
@@ -380,12 +405,12 @@ class ContentService:
                 admin["id"],
             )
         self.db.commit()
-        return self.get_content(resource, item_id)
+        return self.get_content(resource, item_id, admin)
 
     def delete(self, resource, item_id):
         if resource not in INPUT_SCHEMAS:
             raise HTTPException(405, "This module is maintained through SQL imports.")
-        self.resource_service(resource).require(item_id)
+        self.resource_service(resource).require(item_id, admin=True)
 
         from app.services.progress import StudyProgressService
 

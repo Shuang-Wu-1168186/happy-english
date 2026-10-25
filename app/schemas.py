@@ -1,7 +1,11 @@
 from datetime import date, datetime
 from decimal import Decimal
+import json
+import math
+import re
 from typing import Any, Literal
 from urllib.parse import urlparse
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -417,8 +421,8 @@ class LearningTemplateInput(Input):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=50000)
     content_kind: Literal["courseware", "dialogue", "structured", "source"] = "source"
-    supported_clients: list[Literal["web", "mini"]] = Field(
-        default_factory=lambda: ["web", "mini"], min_length=1, max_length=2
+    supported_clients: list[Literal["web", "mini", "android", "ios"]] = Field(
+        default_factory=lambda: ["web", "mini", "android"], min_length=1, max_length=4
     )
     config: dict[str, Any] | None = None
     status: Literal["active", "inactive"] = "active"
@@ -631,9 +635,149 @@ class LearningCourseProgressInput(Input):
 
 class LearningStudySessionStartInput(Input):
     course_id: int = Field(gt=0)
-    platform: Literal["web", "mini_program", "android"] = "web"
+    platform: Literal["web", "mini_program", "android", "ios"] = "web"
     entry_source: str = Field(default="", max_length=100)
 
 
 class LearningStudySessionFinishInput(Input):
     active_seconds: int | None = Field(default=None, ge=0, le=86400)
+
+
+def _valid_json_object(value: dict[str, Any], *, field_name: str, max_bytes: int = 20_000):
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} must contain JSON-compatible values.") from error
+    if len(encoded.encode("utf-8")) > max_bytes:
+        raise ValueError(f"{field_name} is too large.")
+    return value
+
+
+class AppPresentationConfigInput(Input):
+    target_type: Literal["module", "topic", "course", "material", "collection", "placement"]
+    target_key: str = Field(pattern=r"^[a-z0-9][a-z0-9._:-]{0,119}$")
+    platform: Literal["all", "android", "ios", "web", "mini"] = "all"
+    layout_code: str = Field(pattern=r"^[a-z][a-z0-9_]{0,79}$")
+    presentation: dict[str, Any] = Field(default_factory=dict)
+    min_app_version: str = Field(default="", max_length=40)
+    fallback_action: dict[str, Any] | None = None
+    status: Literal["active", "inactive"] = "active"
+    sort_order: int = 0
+
+    @field_validator("presentation")
+    @classmethod
+    def valid_presentation(cls, value):
+        return _valid_json_object(value, field_name="presentation")
+
+    @field_validator("fallback_action")
+    @classmethod
+    def valid_fallback_action(cls, value):
+        if value is None:
+            return None
+        return _valid_json_object(value, field_name="fallback_action", max_bytes=4_000)
+
+
+_ANALYTICS_EVENT_NAME_PATTERN = r"^[a-z][a-z0-9_]{0,79}$"
+_ANALYTICS_PROPERTY_NAME_PATTERN = r"^[a-z][a-z0-9_]{0,79}$"
+_ANALYTICS_SENSITIVE_PROPERTY_NAMES = frozenset(
+    {
+        "password",
+        "secret",
+        "token",
+        "authorization",
+        "cookie",
+        "csrf",
+        "email",
+        "phone",
+        "address",
+        "invite_code",
+        "audio_data",
+        "raw_audio",
+        "note_text",
+        "raw_text",
+        "content",
+    }
+)
+
+
+def _valid_analytics_properties(value: dict[str, Any]):
+    if len(value) > 20:
+        raise ValueError("properties may contain at most 20 values.")
+    for key, item in value.items():
+        if not isinstance(key, str) or not re.fullmatch(_ANALYTICS_PROPERTY_NAME_PATTERN, key):
+            raise ValueError("analytics property names must use lowercase snake_case.")
+        if key in _ANALYTICS_SENSITIVE_PROPERTY_NAMES:
+            raise ValueError("analytics properties must not contain personal or learning content.")
+        if isinstance(item, str):
+            if len(item) > 500:
+                raise ValueError("analytics property text is too long.")
+        elif isinstance(item, bool) or item is None or isinstance(item, int):
+            continue
+        elif isinstance(item, float):
+            if not math.isfinite(item):
+                raise ValueError("analytics property numbers must be finite.")
+        else:
+            raise ValueError("analytics properties only support scalar values.")
+    return value
+
+
+class AnalyticsSubjectInput(Input):
+    subject_type: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,49}$")
+    subject_key: str = Field(min_length=1, max_length=500)
+
+
+class AnalyticsSourceInput(Input):
+    screen: str = Field(default="", pattern=r"^[a-z0-9._-]{0,79}$")
+    placement: str = Field(default="", pattern=r"^[a-z0-9._-]{0,119}$")
+    item_key: str = Field(default="", max_length=500)
+
+
+class AnalyticsContextInput(Input):
+    platform: Literal["android", "ios", "web", "mini"]
+    app_version: str = Field(min_length=1, max_length=40)
+    bootstrap_revision: str = Field(default="", max_length=80)
+    renderer: str = Field(default="", pattern=r"^[a-z0-9._-]{0,79}$")
+
+
+class AnalyticsEventInput(Input):
+    event_id: UUID
+    event_name: str = Field(pattern=_ANALYTICS_EVENT_NAME_PATTERN)
+    occurred_at: datetime
+    session_id: str = Field(default="", max_length=120)
+    subject: AnalyticsSubjectInput | None = None
+    source: AnalyticsSourceInput | None = None
+    context: AnalyticsContextInput
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("properties")
+    @classmethod
+    def valid_properties(cls, value):
+        return _valid_analytics_properties(value)
+
+
+class AnalyticsEventBatchInput(Input):
+    events: list[AnalyticsEventInput] = Field(min_length=1, max_length=100)
+
+    @field_validator("events")
+    @classmethod
+    def unique_event_ids(cls, value):
+        event_ids = [event.event_id for event in value]
+        if len(event_ids) != len(set(event_ids)):
+            raise ValueError("events must not contain duplicate event_id values.")
+        return value
+
+
+class AnalyticsEventDefinitionInput(Input):
+    event_name: str = Field(pattern=_ANALYTICS_EVENT_NAME_PATTERN)
+    description: str = Field(default="", max_length=500)
+    allowed_properties: list[str] = Field(default_factory=list, max_length=20)
+    sample_rate: int = Field(default=100, ge=0, le=100)
+    status: Literal["active", "inactive"] = "active"
+
+    @field_validator("allowed_properties")
+    @classmethod
+    def valid_allowed_properties(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("allowed_properties must not contain duplicate values.")
+        _valid_analytics_properties({key: "value" for key in value})
+        return value

@@ -179,6 +179,14 @@ class PrivateZoneShortcutDAO(BaseTableDAO):
             self.table.c.scope_type == "family",
         )
 
+    def find_active_for_family(self, shortcut_id, family_group_id):
+        return self.find_by_id(
+            shortcut_id,
+            self.table.c.family_group_id == family_group_id,
+            self.table.c.status == "active",
+            self.table.c.scope_type == "family",
+        )
+
 
 class PersonalNoteDAO(BaseTableDAO):
     table = m.personal_note

@@ -661,6 +661,23 @@ class PrivateZoneService:
         self._require_shortcut_family_manager(shortcut["family_group_id"], admin)
         return shortcut
 
+    def _require_family_shortcut(self, family_group_id, shortcut_id, user):
+        self._require_shortcut_family_manager(family_group_id, user)
+        shortcut = self.shortcuts.find_active_for_family(shortcut_id, family_group_id)
+        if not shortcut:
+            raise HTTPException(404, "Shortcut not found.")
+        return shortcut
+
+    @staticmethod
+    def _typed_shortcut_view(shortcut):
+        """Expose a typed action only on the additive family-management API."""
+
+        from app.services.app_actions import action_for_target_url
+
+        result = dict(shortcut)
+        result["action"] = action_for_target_url(result.get("target_url"))
+        return result
+
     def list_shortcuts(self, user):
         """List shortcuts shared by the signed-in user's active families."""
         group_ids = self.family_groups.group_ids_for_user(user["id"])
@@ -680,6 +697,63 @@ class PrivateZoneService:
                 for row in self.shortcuts.list_for_owner_in_families(admin["id"], group_ids)
             ]
         }
+
+    def list_family_shortcuts(self, family_group_id, user):
+        self.family_groups.require_membership(family_group_id, user["id"])
+        return {
+            "items": [
+                self._typed_shortcut_view(self._shortcut_view(row))
+                for row in self.shortcuts.list_for_family_members([family_group_id])
+            ]
+        }
+
+    @staticmethod
+    def _require_matching_shortcut_group(family_group_id, payload):
+        if payload.family_group_id != family_group_id:
+            raise HTTPException(422, "Shortcut family_group_id must match the request path.")
+
+    @staticmethod
+    def _require_supported_shortcut_target(payload):
+        """Keep self-service shortcuts inside the registered action contract."""
+
+        from app.services.app_actions import action_for_target_url
+
+        if not action_for_target_url(payload.target_url):
+            raise HTTPException(422, "Shortcut target is not a registered action or approved HTTPS URL.")
+
+    def create_family_shortcut(self, family_group_id, payload: s.PrivateZoneShortcutInput, user):
+        self._require_matching_shortcut_group(family_group_id, payload)
+        self._require_supported_shortcut_target(payload)
+        self._require_shortcut_family_manager(family_group_id, user)
+        shortcut_id = self.shortcuts.insert(
+            {
+                **self._shortcut_values(payload),
+                "user_id": user["id"],
+                "scope_type": "family",
+                "status": "active",
+            }
+        )
+        self.db.commit()
+        return self._typed_shortcut_view(self._shortcut_view(self.shortcuts.find_by_id(shortcut_id)))
+
+    def update_family_shortcut(
+        self,
+        family_group_id,
+        shortcut_id,
+        payload: s.PrivateZoneShortcutInput,
+        user,
+    ):
+        self._require_matching_shortcut_group(family_group_id, payload)
+        self._require_supported_shortcut_target(payload)
+        self._require_family_shortcut(family_group_id, shortcut_id, user)
+        self.shortcuts.update(shortcut_id, self._shortcut_values(payload))
+        self.db.commit()
+        return self._typed_shortcut_view(self._shortcut_view(self.shortcuts.find_by_id(shortcut_id)))
+
+    def delete_family_shortcut(self, family_group_id, shortcut_id, user):
+        self._require_family_shortcut(family_group_id, shortcut_id, user)
+        self.shortcuts.update(shortcut_id, {"status": "archived"})
+        self.db.commit()
 
     def create_admin_shortcut(self, payload: s.PrivateZoneShortcutInput, admin):
         self._require_shortcut_family_manager(payload.family_group_id, admin)

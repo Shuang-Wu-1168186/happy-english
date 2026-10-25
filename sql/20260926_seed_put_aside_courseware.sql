@@ -14,8 +14,8 @@ SET @source_item_id = (
 INSERT INTO `learning_topic` (
     `module_id`, `topic_code`, `title`, `title_en`, `description`, `sort_order`, `is_published`, `created_by`
 )
-SELECT @module_id, 'phrase-courseware', '短语课件', 'Phrase Courseware',
-       '通过记忆画面、真实场景和开口练习掌握高频短语。', 15, 1, @actor_id
+SELECT @module_id, 'phrase-courseware', '地道英语系列', 'Idiomatic English',
+       '按月份和主题积累地道表达，在短课时里练习理解与开口。', 20, 1, @actor_id
 WHERE @module_id IS NOT NULL AND @source_item_id IS NOT NULL
 ON DUPLICATE KEY UPDATE
     `title` = VALUES(`title`), `title_en` = VALUES(`title_en`),

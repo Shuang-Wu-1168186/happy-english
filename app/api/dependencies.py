@@ -25,6 +25,7 @@ def current_user(request: Request, db: Db):
         != authentication_version(user, request.app.state.settings.secret_key)
     ):
         raise HTTPException(401, "Please log in again.")
+    request.state.user = user
     return user
 
 

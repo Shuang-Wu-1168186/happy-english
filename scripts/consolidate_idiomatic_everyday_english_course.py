@@ -36,6 +36,7 @@ from app.core.database import make_engine  # noqa: E402
 
 SERIES_TITLE = "地道英语日积月累"
 SERIES_TOPIC_CODE = "phrase-courseware"
+SERIES_MODULE_CODE = "elementary-english"
 SERIES_COURSE_CODE = "idiomatic-everyday-english-course"
 MONTH_TITLE = re.compile(r"【\s*(\d{4})年\s*(\d{1,2})月\s*】")
 
@@ -98,7 +99,12 @@ def locked_rows(db, table, course_ids):
 def build_plan(db):
     topic = db.execute(
         select(m.learning_topic)
+        .join(
+            m.learning_module,
+            m.learning_module.c.id == m.learning_topic.c.module_id,
+        )
         .where(m.learning_topic.c.topic_code == SERIES_TOPIC_CODE)
+        .where(m.learning_module.c.module_code == SERIES_MODULE_CODE)
         .with_for_update()
     ).mappings().one_or_none()
     if not topic:

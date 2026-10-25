@@ -59,6 +59,7 @@ def session_info(request: Request, response: Response, db: Db):
             user,
             auth_method=request.state.session.get("auth_method"),
             csrf_token=csrf,
+            request=request,
         )
     elif not csrf or request.state.session.get("uid"):
         csrf = issue_session(
@@ -66,6 +67,7 @@ def session_info(request: Request, response: Response, db: Db):
             request.app.state.settings,
             user,
             auth_method=request.state.session.get("auth_method") if user else None,
+            request=request,
         )
     return {
         "user": public_user(user) if user else None,
@@ -84,8 +86,9 @@ def login(data: Credentials, request: Request, response: Response, db: Db):
     except HTTPException:
         service.record_login(username=username, user_row=None, success=False, **metadata)
         raise
+    request.state.user = user
     service.record_login(username=username, user_row=user, success=True, **metadata)
-    csrf = issue_session(response, request.app.state.settings, user)
+    csrf = issue_session(response, request.app.state.settings, user, request=request)
     return {"user": public_user(user), "csrf_token": csrf}
 
 
@@ -109,12 +112,14 @@ def miniprogram_login(data: MiniProgramLoginInput, request: Request, response: R
     except HTTPException:
         service.record_login(username="wechat_miniprogram", user_row=None, success=False, **metadata)
         raise
+    request.state.user = user
     service.record_login(username=user["username"], user_row=user, success=True, **metadata)
     csrf = issue_session(
         response,
         request.app.state.settings,
         user,
         auth_method="wechat_miniprogram",
+        request=request,
     )
     return {"user": public_user(user), "csrf_token": csrf, "created": created}
 
@@ -129,7 +134,7 @@ def logout(request: Request, response: Response, db: Db):
                 raise
         else:
             AccountService(db).revoke_sessions(user["id"])
-    csrf = issue_session(response, request.app.state.settings)
+    csrf = issue_session(response, request.app.state.settings, request=request)
     return {"user": None, "csrf_token": csrf}
 
 
@@ -146,7 +151,7 @@ def profile(data: ProfileInput, db: Db, user: User):
 @router.post("/profile/password")
 def password(data: PasswordInput, request: Request, response: Response, db: Db, user: User):
     updated = AccountService(db).change_password(user, data)
-    csrf = issue_session(response, request.app.state.settings, updated)
+    csrf = issue_session(response, request.app.state.settings, updated, request=request)
     return {"csrf_token": csrf}
 
 

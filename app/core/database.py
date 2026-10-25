@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger("app.sql")
 _SENSITIVE_SQL = re.compile(
-    r"(?:password|passwd|secret|token|authorization|cookie|csrf|api[_-]?key|access[_-]?key|signature)",
+    r"(?:password|passwd|secret|token|authorization|cookie|csrf|api[_-]?key|access[_-]?key|signature|analytics_event)",
     re.IGNORECASE,
 )
 _MAX_PARAMETER_TEXT = 2048

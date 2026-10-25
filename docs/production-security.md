@@ -14,7 +14,12 @@ COOKIE_SECURE=true
 CORS_ORIGINS=["https://happylingo.cn","https://www.happylingo.cn"]
 TRUSTED_HOSTS=["happylingo.cn","www.happylingo.cn","api.happylingo.cn","127.0.0.1","localhost"]
 API_DOCS_ENABLED=false
+APP_SESSION_SECONDS=604800
 ```
+
+Android requests identify themselves with `HappyLingo-Android/`; their signed
+session is valid for seven days. Browser sessions continue to use
+`SESSION_SECONDS` (12 hours by default).
 
 Use a dedicated `EXTERNAL_ID_SECRET` in production. Keep the previous key in
 `EXTERNAL_ID_PREVIOUS_SECRETS` during a rotation so active opaque identifiers

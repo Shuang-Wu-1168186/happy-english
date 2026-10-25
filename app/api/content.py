@@ -53,7 +53,10 @@ def get_content(resource: str, item_id: int, db: Db, user: User):
 @router.post("/content/note-items/{item_id}/frequency")
 def increment_note_item_frequency(item_id: int, db: Db, user: User):
     MembershipService(db).require_legacy_content_access(user, "note-items")
-    ContentService(db).resource_service("note-items").require(item_id)
+    # Administrators can preview unpublished cards in the learning/search
+    # screen, so use the same visibility rules as the list/detail endpoints.
+    is_admin = bool(user and user.get("role") == "admin")
+    ContentService(db).resource_service("note-items").require(item_id, admin=is_admin)
     frequency_count = NoteItemFrequencyService(db).increment(user["id"], item_id)
     db.commit()
     return {"success": True, "item_id": item_id, "frequency_count": frequency_count}

@@ -281,6 +281,56 @@ def test_note_courseware_splits_numbered_and_contextual_meanings_into_separate_c
     ]
 
 
+def test_note_courseware_recovers_compact_bilingual_rows():
+    item = {
+        "id": 1652,
+        "item_title": "directive",
+        "raw_text": "directive",
+        "english_text": "directive",
+        "chinese_text": "名词：指令；正式命令；官方要求",
+        "explanation": (
+            "issue a directive发布指令\n"
+            "The government issued a directive to reduce unnecessary spending.政府发布了一项指令，要求减少不必要的支出。\n"
+            "give someone a directive to do something给某人下达指令做某事\n"
+            "They gave him a directive to remove the harmful comments.他们要求他删除那些有害评论。"
+        ),
+        "examples": (
+            "🆚 directive vs direct\n"
+            "direct = 直接的\n"
+            "a direct answer直接的回答\n"
+            "directive = 指令；指导性的\n"
+            "a government directive政府指令"
+        ),
+    }
+
+    preview = NoteCoursewareService(None)._preview_item(item)
+    hero = _block_payload(preview, "hero")
+    usage = _block_payload(preview, "usage_group")
+    comparison = _block_payload(preview, "comparison")
+
+    assert hero["key_sentence"] == {
+        "english": "The government issued a directive to reduce unnecessary spending.",
+        "chinese": "政府发布了一项指令，要求减少不必要的支出。",
+    }
+    assert usage["uses"][0]["examples"][0] == hero["key_sentence"]
+    assert comparison["items"] == [
+        {
+            "expression": "direct",
+            "meaning": "直接的",
+            "label": "易混表达",
+            "english": "a direct answer",
+            "chinese": "直接的回答",
+        },
+        {
+            "expression": "directive",
+            "meaning": "指令；指导性的",
+            "label": "易混表达",
+            "english": "a government directive",
+            "chinese": "政府指令",
+        },
+    ]
+
+
 def test_note_courseware_splits_explicit_multi_headwords_into_separate_lessons():
     item = {
         "id": 334,

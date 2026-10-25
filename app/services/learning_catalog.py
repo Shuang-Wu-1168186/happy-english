@@ -23,7 +23,7 @@ from app.services.lesson_content import GenericLessonContentService
 
 
 # This is the cross-client renderer contract.  The same `code` and `version`
-# are registered by the web application and the mini program.  The database
+# are registered by the web application, mini program, and Android app.  The database
 # may control naming, ordering, and activation, but it cannot point a material
 # at an arbitrary renderer that one of the clients does not ship.
 MATERIAL_TEMPLATE_DEFINITIONS = {
@@ -363,7 +363,7 @@ class LearningCatalogService:
             "name": definition["name"],
             "description": definition["description"],
             "content_kind": definition["content_kind"],
-            "supported_clients": ["web", "mini"],
+            "supported_clients": ["web", "mini", "android"],
             "config": {},
             "status": "active",
             "sort_order": 0,
@@ -893,6 +893,7 @@ class LearningCatalogService:
                 self.db.execute(
                     select(m.english_note).where(
                         m.english_note.c.id == source_reference_id,
+                        m.english_note.c.scope_type == "platform",
                         m.english_note.c.share_status == 1,
                     )
                 )
@@ -986,7 +987,16 @@ class LearningCatalogService:
             and lesson_index not in unlocked_indexes
         )
         if is_locked:
-            raise HTTPException(403, "该章节需要会员解锁，请升级会员后继续学习。")
+            raise HTTPException(
+                403,
+                detail=access.get("access_prompt")
+                or {
+                    "code": "membership_required",
+                    "title": "需要会员权限",
+                    "message": "开通会员后即可继续学习这部分内容。",
+                    "action_text": "查看会员方案",
+                },
+            )
         return self._lesson_view(
             lesson,
             include_content=True,
@@ -1477,6 +1487,7 @@ class LearningCatalogService:
             note = self.db.execute(
                 select(m.english_note.c.id).where(
                     m.english_note.c.id == source_reference_id,
+                    m.english_note.c.scope_type == "platform",
                     m.english_note.c.share_status == 1,
                 )
             ).first()

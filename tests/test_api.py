@@ -1,3 +1,4 @@
+from datetime import date
 from io import BytesIO
 
 import pytest
@@ -25,6 +26,18 @@ def test_health_session_cors_and_csrf(client):
         "access-control-allow-origin"
         not in client.get("/api/health", headers={"Origin": "https://untrusted.example"}).headers
     )
+
+
+def test_android_session_uses_seven_day_lifetime_without_extending_browser_default(client):
+    browser_session = client.get("/api/auth/session")
+    assert "Max-Age=43200" in browser_session.headers["set-cookie"]
+
+    client.cookies.clear()
+    android_session = client.get(
+        "/api/auth/session",
+        headers={"User-Agent": "HappyLingo-Android/1.0"},
+    )
+    assert "Max-Age=604800" in android_session.headers["set-cookie"]
 
 
 def test_header_session_supports_miniprogram_login_without_cookie(client):
@@ -219,6 +232,86 @@ def test_filter_pagination_and_auth_permissions(client):
         == 403
     )
     assert client.get("/api/content/user").status_code == 404
+
+
+def test_unshared_platform_notes_are_not_public_content(client):
+    with client.app.state.engine.begin() as connection:
+        connection.execute(
+            m.english_note.insert(),
+            {
+                "id": 2,
+                "note_date": date(2026, 9, 21),
+                "title": "Unpublished note",
+                "scope_type": "platform",
+                "share_status": 0,
+                "created_by": 1,
+            },
+        )
+        connection.execute(
+            m.english_note_item.insert(),
+            [
+                {
+                    "id": 2,
+                    "note_id": 2,
+                    "item_title": "Unpublished note item",
+                    "raw_text": "Draft only",
+                    "english_text": "Draft only",
+                    "chinese_text": "仅限草稿",
+                    "share_status": 0,
+                    "created_by": 1,
+                },
+                {
+                    "id": 3,
+                    "note_id": 1,
+                    "item_title": "Unpublished item",
+                    "raw_text": "Hidden item",
+                    "english_text": "Hidden item",
+                    "chinese_text": "隐藏词条",
+                    "share_status": 0,
+                    "created_by": 1,
+                },
+            ],
+        )
+
+    sign_in(client, "learner_test")
+    assert [item["id"] for item in client.get("/api/content/notes").json()["items"]] == [
+        opaque_id(client, 1)
+    ]
+    assert [item["id"] for item in client.get("/api/content/note-items").json()["items"]] == [
+        opaque_id(client, 1)
+    ]
+    assert client.get(f"/api/content/notes/{opaque_id(client, 2)}").status_code == 404
+    assert client.get(f"/api/content/note-items/{opaque_id(client, 2)}").status_code == 404
+    assert client.get(f"/api/content/note-items/{opaque_id(client, 3)}").status_code == 404
+    public_note = client.get(f"/api/content/notes/{opaque_id(client, 1)}").json()
+    assert [item["id"] for item in public_note["items"]] == [opaque_id(client, 1)]
+
+    admin_headers = sign_in(client)
+    assert {item["id"] for item in client.get("/api/content/notes").json()["items"]} == {
+        opaque_id(client, 1),
+        opaque_id(client, 2),
+    }
+    admin_note = client.get(f"/api/content/notes/{opaque_id(client, 1)}").json()
+    assert {item["id"] for item in admin_note["items"]} == {
+        opaque_id(client, 1),
+        opaque_id(client, 3),
+    }
+    assert client.get(f"/api/content/notes/{opaque_id(client, 2)}").status_code == 200
+    # The administrator learning/search page can preview unpublished cards;
+    # progress and frequency endpoints must accept those same cards.
+    assert client.post(
+        "/api/progress",
+        headers=admin_headers,
+        json={
+            "content_type": "english_note",
+            "parent_id": opaque_id(client, 1),
+            "item_id": opaque_id(client, 3),
+        },
+    ).status_code == 200
+    assert client.post(
+        f"/api/content/note-items/{opaque_id(client, 3)}/frequency",
+        headers=admin_headers,
+    ).status_code == 200
 
 
 def test_kids_cards_follow_editorial_priority_order(client):

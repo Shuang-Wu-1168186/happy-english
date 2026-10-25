@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     external_id_previous_secrets: list[str] = Field(default_factory=list)
     database_url: str = "mysql+pymysql://happyenglish@127.0.0.1:3306/happy_english?charset=utf8mb4"
     cookie_secure: bool = False
+    # Browser sessions remain shorter by default; the Android app keeps its
+    # signed session for a week so users are not forced to log in frequently.
     session_seconds: int = Field(default=43200, ge=60)
+    app_session_seconds: int = Field(default=7 * 24 * 60 * 60, ge=60)
     audio_enabled: bool = False
     wechat_miniprogram_app_id: str = ""
     wechat_miniprogram_app_secret: str = ""

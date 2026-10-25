@@ -17,6 +17,10 @@ class ContentTableDAO(BaseTableDAO):
                 return [self.table.c[name] == 1]
         return []
 
+    def admin_visible_conditions(self):
+        """Rows available to an administrator in the content-management UI."""
+        return self.visible_conditions()
+
     def ordering(self):
         if self.table is m.english_note:
             return [self.table.c.note_date.desc(), self.table.c.id.desc()]
@@ -60,8 +64,11 @@ class ContentTableDAO(BaseTableDAO):
         page_size=20,
         language_register="",
         scenario="",
+        visibility_conditions=None,
     ):
-        conditions = self.visible_conditions()
+        conditions = list(
+            self.visible_conditions() if visibility_conditions is None else visibility_conditions
+        )
         q = q.strip()
         if q:
             matches = self.text_matches(q)
@@ -112,11 +119,14 @@ class ContentTableDAO(BaseTableDAO):
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
 
-    def get_published(self, item_id):
-        return self.find_by_id(item_id, *self.visible_conditions())
+    def get_published(self, item_id, visibility_conditions=None):
+        conditions = self.visible_conditions() if visibility_conditions is None else visibility_conditions
+        return self.find_by_id(item_id, *conditions)
 
-    def neighbor_ids(self, item_id, parent_id=None):
-        conditions = self.visible_conditions()
+    def neighbor_ids(self, item_id, parent_id=None, visibility_conditions=None):
+        conditions = list(
+            self.visible_conditions() if visibility_conditions is None else visibility_conditions
+        )
         if parent_id is not None and "note_id" in self.table.c:
             conditions.append(self.table.c.note_id == parent_id)
         navigation = (
@@ -130,12 +140,13 @@ class ContentTableDAO(BaseTableDAO):
         )
         return self.db.execute(select(navigation).where(navigation.c.id == item_id)).mappings().one_or_none()
 
-    def list_for_parent(self, foreign_key, parent_id):
+    def list_for_parent(self, foreign_key, parent_id, visibility_conditions=None):
         if foreign_key not in self.table.c:
             return []
+        conditions = self.visible_conditions() if visibility_conditions is None else visibility_conditions
         return self.list_where(
             self.table.c[foreign_key] == parent_id,
-            *self.visible_conditions(),
+            *conditions,
             order_by=self.ordering(),
         )
 
@@ -148,9 +159,18 @@ class EnglishNoteDAO(ContentTableDAO):
     table = m.english_note
 
     def visible_conditions(self):
-        # The legacy content endpoints represent the platform library. Private
-        # and family notes are served by the private-zone service after an
-        # ownership or group-membership check.
+        # The legacy content endpoints represent the published platform
+        # library. Private and family notes are served by the private-zone
+        # service after an ownership or group-membership check.
+        return [
+            *super().visible_conditions(),
+            self.table.c.scope_type == "platform",
+            self.table.c.share_status == 1,
+        ]
+
+    def admin_visible_conditions(self):
+        # Administrators still need to maintain unpublished platform notes,
+        # but personal and family notes remain outside the generic content API.
         return [*super().visible_conditions(), self.table.c.scope_type == "platform"]
 
     def related_search_condition(self, query):
@@ -171,6 +191,20 @@ class EnglishNoteItemDAO(ContentTableDAO):
     table = m.english_note_item
 
     def visible_conditions(self):
+        notes = m.english_note
+        return [
+            *super().visible_conditions(),
+            self.table.c.share_status == 1,
+            select(notes.c.id)
+            .where(
+                notes.c.id == self.table.c.note_id,
+                notes.c.scope_type == "platform",
+                notes.c.share_status == 1,
+            )
+            .exists(),
+        ]
+
+    def admin_visible_conditions(self):
         notes = m.english_note
         return [
             *super().visible_conditions(),

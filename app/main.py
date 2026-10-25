@@ -16,7 +16,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api import (
     accounts,
+    analytics,
     audio,
+    app_shell,
     content,
     learning_catalog,
     learning_progress,
@@ -25,7 +27,7 @@ from app.api import (
     progress,
 )
 from app.core.config import Settings
-from app.core.database import make_engine
+from app.core.database import configure_sql_logging, make_engine
 from app.core.logging import (
     REQUEST_ID_HEADER,
     bind_request_id,
@@ -67,6 +69,15 @@ def _json_for_log(value):
         return json.dumps({"value": str(value)}, ensure_ascii=False)
 
 
+def _request_actor_for_log(request: Request):
+    """Return a small identity context without copying session credentials."""
+    user = getattr(request.state, "user", None)
+    if user:
+        return user.get("id"), user.get("username") or "-"
+    session = getattr(request.state, "session", {})
+    return session.get("uid") or "-", "-"
+
+
 async def _request_input_for_log(request: Request):
     """Capture structured request input while skipping binary upload bodies."""
     content_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
@@ -105,6 +116,19 @@ async def _request_input_for_log(request: Request):
     if content_type == "application/json" or content_type.endswith("+json"):
         try:
             result["body"] = json.loads(body.decode("utf-8"))
+            # Speech requests can contain private learner text. Keep the
+            # request shape in diagnostics without copying that text to logs.
+            if request.url.path == "/api/audio/tts" and isinstance(result["body"], dict):
+                result["body"] = {**result["body"], "text": "[REDACTED]"}
+            # Analytics accepts only validated scalar properties, but logging
+            # its raw payload would still create an unnecessary second copy of
+            # learner behaviour data (including stable resource references).
+            if request.url.path.startswith("/api/analytics/"):
+                events = result["body"].get("events", []) if isinstance(result["body"], dict) else []
+                result["body"] = {
+                    "omitted": "analytics payload",
+                    "event_count": len(events) if isinstance(events, list) else 0,
+                }
         except (UnicodeDecodeError, json.JSONDecodeError):
             result["body"] = {"omitted": "invalid JSON body", "bytes": len(body)}
     elif content_type == "application/x-www-form-urlencoded":
@@ -160,6 +184,7 @@ def create_app(settings: Settings | None = None, engine=None):
     settings = settings or Settings()
     configure_logging(settings)
     engine = engine if engine is not None else make_engine(settings.database_url)
+    configure_sql_logging(engine)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -197,8 +222,11 @@ def create_app(settings: Settings | None = None, engine=None):
         try:
             request.state.session = read_session(request)
             request_input = await _request_input_for_log(request)
+            actor_user_id, actor_username = _request_actor_for_log(request)
             logger.info(
-                "http.request.input method=%s path=%s data=%s",
+                "http.request.input actor_user_id=%s actor_username=%s method=%s path=%s data=%s",
+                actor_user_id,
+                actor_username,
                 request.method,
                 request.url.path,
                 _json_for_log(request_input),
@@ -231,8 +259,11 @@ def create_app(settings: Settings | None = None, engine=None):
             response.headers[REQUEST_ID_HEADER] = request_id
             return response
         except Exception as exc:
+            actor_user_id, actor_username = _request_actor_for_log(request)
             logger.error(
-                "http.request.failed method=%s path=%s error_type=%s duration_ms=%.1f",
+                "http.request.failed actor_user_id=%s actor_username=%s method=%s path=%s error_type=%s duration_ms=%.1f",
+                actor_user_id,
+                actor_username,
                 request.method,
                 request.url.path,
                 type(exc).__name__,
@@ -241,15 +272,19 @@ def create_app(settings: Settings | None = None, engine=None):
             raise
         finally:
             if response is not None:
+                actor_user_id, actor_username = _request_actor_for_log(request)
                 duration_ms = (perf_counter() - started_at) * 1000
                 logger.info(
-                    "http.request.output method=%s path=%s status=%d data=%s",
+                    "http.request.output actor_user_id=%s actor_username=%s method=%s path=%s status=%d data=%s",
+                    actor_user_id,
+                    actor_username,
                     request.method,
                     request.url.path,
                     response.status_code,
                     _json_for_log(response_output if response_output is not None else _response_output_for_log(response)),
                 )
             if response is not None and is_api_request:
+                actor_user_id, actor_username = _request_actor_for_log(request)
                 duration_ms = (perf_counter() - started_at) * 1000
                 message = "http.request.completed"
                 log_method = logger.info
@@ -261,8 +296,10 @@ def create_app(settings: Settings | None = None, engine=None):
                 elif response.status_code >= 400:
                     log_method = logger.warning
                 log_method(
-                    "%s method=%s path=%s status=%d duration_ms=%.1f",
+                    "%s actor_user_id=%s actor_username=%s method=%s path=%s status=%d duration_ms=%.1f",
                     message,
+                    actor_user_id,
+                    actor_username,
                     request.method,
                     request.url.path,
                     response.status_code,
@@ -307,6 +344,9 @@ def create_app(settings: Settings | None = None, engine=None):
         return {"status": "ok", "database": "connected"}
 
     app.include_router(accounts.router, prefix="/api")
+    app.include_router(analytics.router, prefix="/api")
+    app.include_router(analytics.admin_router, prefix="/api")
+    app.include_router(app_shell.router, prefix="/api")
     app.include_router(content.router, prefix="/api")
     app.include_router(learning_catalog.router, prefix="/api")
     app.include_router(membership.router, prefix="/api")

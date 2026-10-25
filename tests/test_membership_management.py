@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -55,6 +55,19 @@ def test_admin_configures_material_membership_and_course_access(client):
     assert lesson_response.json()["source_resource"] == "textbook"
 
     # A private note cannot be published as a platform material lesson.
+    private_note = client.post(
+        "/api/learning/private-zone/notes",
+        headers=sign_in(client, "learner_test"),
+        json={
+            "note_date": "2026-10-24",
+            "title": "Learner-only study note",
+            "scope_type": "personal",
+        },
+    )
+    assert private_note.status_code == 201
+    private_note_id = private_note.json()["note"]["id"]
+    admin_headers = sign_in(client)
+
     private_note_lesson = client.post(
         f"/api/admin/learning-materials/{material_id}/lessons",
         headers=admin_headers,
@@ -62,7 +75,7 @@ def test_admin_configures_material_membership_and_course_access(client):
             "lesson_code": "private-note",
             "title": "Private note",
             "source_resource": "notes",
-            "source_reference_id": opaque_id(client, 1),
+            "source_reference_id": private_note_id,
         },
     )
     assert private_note_lesson.status_code == 422
@@ -155,7 +168,7 @@ def test_admin_configures_material_membership_and_course_access(client):
         f"/api/content/textbook/{opaque_id(client, 1)}", headers=learner_headers
     ).status_code == 403
 
-    starts_at = datetime.now().replace(microsecond=0)
+    starts_at = datetime.now(UTC).replace(microsecond=0)
     admin_headers = sign_in(client)
     grant = client.post(
         f"/api/admin/users/{opaque_id(client, 2)}/memberships",
@@ -292,6 +305,32 @@ def test_membership_course_previews_two_lessons_and_locks_the_rest(client):
     assert "content" not in preview_data["lessons"][2]
     assert preview_data["lessons"][2]["lock_reason"] == "membership"
 
+    # A learner may record progress for the two unlocked trial lessons even
+    # though the course itself still reports a locked membership entitlement.
+    trial_progress = client.post(
+        "/api/learning/progress",
+        headers=learner_headers,
+        json={
+            "course_id": course_id,
+            "total_item_count": 3,
+            "item": {
+                "item_key": f"lesson-{preview_data['lessons'][0]['id']}",
+                "item_type": "material_lesson",
+                "item_reference_id": preview_data["lessons"][0]["id"],
+                "is_completed": True,
+            },
+        },
+    )
+    assert trial_progress.status_code == 200
+    assert trial_progress.json()["completed_item_count"] == 1
+
+    trial_session = client.post(
+        "/api/learning/study-sessions",
+        headers=learner_headers,
+        json={"course_id": course_id, "platform": "android"},
+    )
+    assert trial_session.status_code == 201
+
     material_preview = client.get(
         f"/api/learning/materials/{material_id}", headers=learner_headers
     )
@@ -317,7 +356,8 @@ def test_membership_course_previews_two_lessons_and_locks_the_rest(client):
         headers=learner_headers,
     )
     assert locked_material_lesson.status_code == 403
-    assert "需要会员解锁" in locked_material_lesson.json()["detail"]
+    assert locked_material_lesson.json()["detail"]["code"] == "membership_unavailable"
+    assert locked_material_lesson.json()["detail"]["title"] == "暂时无法解锁"
 
     admin_headers = sign_in(client)
     plan = client.post(
@@ -358,7 +398,7 @@ def test_membership_course_previews_two_lessons_and_locks_the_rest(client):
         ).status_code
         == 200
     )
-    starts_at = datetime.now().replace(microsecond=0)
+    starts_at = datetime.now(UTC).replace(microsecond=0)
     grant = client.post(
         f"/api/admin/users/{opaque_id(client, 2)}/memberships",
         headers=admin_headers,
@@ -633,7 +673,7 @@ def test_cannot_issue_an_inactive_membership_plan(client):
             "membership_plan_id": plan.json()["id"],
             "status": "active",
             "source": "manual",
-            "starts_at": datetime.now().replace(microsecond=0).isoformat(),
+            "starts_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         },
     )
 
@@ -724,7 +764,7 @@ def test_membership_admin_lists_filter_and_paginate(client):
     assert courses.json()["total"] == 1
     assert courses.json()["items"][0]["id"] == course.json()["id"]
 
-    starts_at = datetime.now().replace(microsecond=0)
+    starts_at = datetime.now(UTC).replace(microsecond=0)
     issued = client.post(
         f"/api/admin/users/{opaque_id(client, 2)}/memberships",
         headers=admin_headers,

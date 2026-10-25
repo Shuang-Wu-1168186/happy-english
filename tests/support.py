@@ -190,7 +190,13 @@ def sample_engine(url="sqlite://"):
         )
         c.execute(
             m.english_note.insert(),
-            {"id": 1, "note_date": date(2026, 9, 20), "title": "Daily practice", "created_by": 1},
+            {
+                "id": 1,
+                "note_date": date(2026, 9, 20),
+                "title": "Daily practice",
+                "share_status": 1,
+                "created_by": 1,
+            },
         )
         c.execute(
             m.english_note_item.insert(),
@@ -201,6 +207,7 @@ def sample_engine(url="sqlite://"):
                 "raw_text": "Good morning",
                 "english_text": "Good morning",
                 "chinese_text": "早上好",
+                "share_status": 1,
                 "created_by": 1,
             },
         )

@@ -1,11 +1,10 @@
 """DAOs for membership configuration, grants, and learner course selections."""
 
-from datetime import datetime
-
 from sqlalchemy import func, or_, select
 
 from app import models as m
 from app.dao.base import BaseTableDAO
+from app.core.time import utc_now_naive
 
 
 class MembershipPlanDAO(BaseTableDAO):
@@ -197,7 +196,7 @@ class UserMembershipDAO(BaseTableDAO):
         )
 
     def active_for_user(self, user_id, now=None, except_membership_id=None):
-        now = now or datetime.now()
+        now = now or utc_now_naive()
         conditions = [
             self.table.c.user_id == user_id,
             self.table.c.status == "active",

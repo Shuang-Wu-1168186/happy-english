@@ -1281,3 +1281,90 @@ Index(
     learning_study_session.c.progress_id,
     learning_study_session.c.ended_at,
 )
+
+# App-shell configuration is separate from the learning catalogue so new
+# presentation choices can be published without changing a course, topic, or
+# material record used by existing clients.
+app_presentation_config = Table(
+    "app_presentation_config",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("target_type", String(32), nullable=False),
+    Column("target_key", String(120), nullable=False),
+    Column("platform", String(20), nullable=False, server_default=text("'all'")),
+    Column("layout_code", String(80), nullable=False),
+    Column("presentation_json", Text, nullable=False),
+    Column("min_app_version", String(40), nullable=True),
+    Column("fallback_action_json", Text, nullable=True),
+    Column("status", String(20), nullable=False, server_default=text("'active'")),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("created_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("target_type", "target_key", "platform", name="uk_app_presentation_target"),
+)
+Index(
+    "idx_app_presentation_active_target",
+    app_presentation_config.c.status,
+    app_presentation_config.c.target_type,
+    app_presentation_config.c.target_key,
+    app_presentation_config.c.platform,
+)
+
+# The event dictionary validates extensible analytics events before they are
+# accepted.  Built-in app-shell events remain available even on deployments
+# that have not added a custom definition yet.
+analytics_event_definition = Table(
+    "analytics_event_definition",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("event_name", String(80), nullable=False),
+    Column("description", String(500), nullable=True),
+    Column("allowed_properties_json", Text, nullable=False),
+    Column("sample_rate", Integer, nullable=False, server_default=text("'100'")),
+    Column("status", String(20), nullable=False, server_default=text("'active'")),
+    Column("created_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_by", Integer, ForeignKey("user.id", ondelete="SET NULL"), nullable=True),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("event_name", name="uk_analytics_event_definition_name"),
+)
+Index(
+    "idx_analytics_event_definition_status",
+    analytics_event_definition.c.status,
+    analytics_event_definition.c.event_name,
+)
+
+# Analytics deliberately stores only stable resource references and validated
+# scalar properties.  It never stores learner content such as note text,
+# audio, invite codes, or credentials.
+analytics_event = Table(
+    "analytics_event",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("event_id", String(64), nullable=False),
+    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
+    Column("event_name", String(80), nullable=False),
+    Column("occurred_at", DateTime, nullable=False),
+    Column("session_id", String(120), nullable=True),
+    Column("subject_type", String(50), nullable=True),
+    Column("subject_key", String(500), nullable=True),
+    Column("source_screen", String(80), nullable=True),
+    Column("source_placement", String(120), nullable=True),
+    Column("source_item_key", String(500), nullable=True),
+    Column("properties_json", Text, nullable=False),
+    Column("context_json", Text, nullable=False),
+    Column("received_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("event_id", name="uk_analytics_event_event_id"),
+)
+Index(
+    "idx_analytics_event_user_occurred",
+    analytics_event.c.user_id,
+    analytics_event.c.occurred_at,
+)
+Index(
+    "idx_analytics_event_name_occurred",
+    analytics_event.c.event_name,
+    analytics_event.c.occurred_at,
+)

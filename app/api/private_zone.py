@@ -123,6 +123,39 @@ def issue_family_group_invite_code(group_id: int, db: Db, user: User):
     return FamilyGroupService(db).issue_invite_code(group_id, user)
 
 
+@router.get("/learning/family-groups/{group_id}/shortcuts")
+def list_family_group_shortcuts(group_id: int, db: Db, user: User):
+    return PrivateZoneService(db).list_family_shortcuts(group_id, user)
+
+
+@router.post("/learning/family-groups/{group_id}/shortcuts", status_code=201)
+def create_family_group_shortcut(
+    group_id: int,
+    payload: PrivateZoneShortcutInput,
+    db: Db,
+    user: User,
+):
+    return PrivateZoneService(db).create_family_shortcut(group_id, payload, user)
+
+
+@router.put("/learning/family-groups/{group_id}/shortcuts/{shortcut_id}")
+def update_family_group_shortcut(
+    group_id: int,
+    shortcut_id: int,
+    payload: PrivateZoneShortcutInput,
+    db: Db,
+    user: User,
+):
+    return PrivateZoneService(db).update_family_shortcut(
+        group_id, shortcut_id, payload, user
+    )
+
+
+@router.delete("/learning/family-groups/{group_id}/shortcuts/{shortcut_id}", status_code=204)
+def delete_family_group_shortcut(group_id: int, shortcut_id: int, db: Db, user: User):
+    PrivateZoneService(db).delete_family_shortcut(group_id, shortcut_id, user)
+
+
 @router.put("/learning/family-groups/{group_id}")
 def rename_family_group(group_id: int, payload: FamilyGroupInput, db: Db, user: User):
     return FamilyGroupService(db).rename(group_id, payload, user)

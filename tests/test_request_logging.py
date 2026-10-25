@@ -16,9 +16,15 @@ def test_request_logging_includes_inputs_and_outputs_without_credentials(client)
     assert "http.request.output" in log_text
     assert '"status":"ok"' in log_text
     assert "admin_test" in log_text
+    assert "actor_user_id=1 actor_username=admin_test" in log_text
     assert "[REDACTED]" in log_text
     assert "Testing123!" not in log_text
     assert "should-not-be-logged" not in log_text
+
+    sign_in(client, "learner_test")
+    assert client.get("/api/auth/session").status_code == 200
+    log_text = client.app.state.settings.log_file.read_text()
+    assert "actor_user_id=2 actor_username=learner_test" in log_text
 
 
 def test_request_logging_describes_binary_response_without_dumping_audio(client):

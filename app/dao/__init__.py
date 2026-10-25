@@ -1,6 +1,8 @@
 """Data access objects, one registered DAO for every mapped database table."""
 
 from app.dao.accounts import ACCOUNT_TABLE_DAO_TYPES
+from app.dao.analytics import ANALYTICS_TABLE_DAO_TYPES
+from app.dao.app_shell import APP_SHELL_TABLE_DAO_TYPES
 from app.dao.content import CONTENT_TABLE_DAO_TYPES
 from app.dao.courseware import COURSEWARE_TABLE_DAO_TYPES
 from app.dao.learning_catalog import LEARNING_CATALOG_TABLE_DAO_TYPES
@@ -13,6 +15,8 @@ from app.dao.private_zone import PRIVATE_ZONE_TABLE_DAO_TYPES
 
 TABLE_DAO_TYPES = {
     **ACCOUNT_TABLE_DAO_TYPES,
+    **ANALYTICS_TABLE_DAO_TYPES,
+    **APP_SHELL_TABLE_DAO_TYPES,
     **CONTENT_TABLE_DAO_TYPES,
     **COURSEWARE_TABLE_DAO_TYPES,
     **LEARNING_CATALOG_TABLE_DAO_TYPES,

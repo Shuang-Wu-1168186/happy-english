@@ -32,7 +32,7 @@ class LearningProgressService:
         self.item_dao = LearningProgressItemDAO(db)
         self.course_service = LearningCourseService(db)
 
-    def require_course(self, course_id, user=None):
+    def require_course(self, course_id, user=None, *, allow_preview=False):
         course = self.course_service.require_public(course_id)
         if user is not None:
             # Import here to keep the catalogue and entitlement services free of
@@ -40,8 +40,19 @@ class LearningProgressService:
             from app.services.membership import LearningUserCourseService
 
             access = LearningUserCourseService(self.db).course_access(user, course)
-            if access["access_state"] != "available":
-                raise HTTPException(403, "This course requires an active membership benefit.")
+            if access["access_state"] != "available" and not (
+                allow_preview and access["access_state"] == "locked"
+            ):
+                raise HTTPException(
+                    403,
+                    detail=access.get("access_prompt")
+                    or {
+                        "code": "membership_required",
+                        "title": "需要会员权限",
+                        "message": "开通会员后即可继续学习这部分内容。",
+                        "action_text": "查看会员方案",
+                    },
+                )
         return course
 
     def ensure_for_course(self, user, course_id, course=None):
@@ -98,7 +109,10 @@ class LearningProgressService:
             )
 
     def save(self, user, data: s.LearningCourseProgressInput):
-        course = self.require_course(data.course_id, user)
+        # Preview lessons are intentionally studyable without membership. The
+        # progress record must follow the same rule as the course-opening API,
+        # otherwise the learner can read the trial lesson but cannot record it.
+        course = self.require_course(data.course_id, user, allow_preview=True)
         progress, _ = self.ensure_for_course(user, data.course_id, course)
         if data.item:
             self._record_item(progress["id"], data.item)
@@ -166,7 +180,7 @@ class LearningStudySessionService:
         self.progress = LearningProgressService(db)
 
     def start(self, user, data: s.LearningStudySessionStartInput):
-        course = self.progress.require_course(data.course_id, user)
+        course = self.progress.require_course(data.course_id, user, allow_preview=True)
         progress, _ = self.progress.ensure_for_course(user, data.course_id, course)
         existing = self.dao.find_open_for_user_course(user["id"], data.course_id)
         if existing:

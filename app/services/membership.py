@@ -1,7 +1,7 @@
 """Membership configuration, course entitlement, and my-course services."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -19,6 +19,7 @@ from app.dao.membership import (
     UserMembershipDAO,
 )
 from app.services.learning_catalog import LearningCatalogService, LearningCourseService
+from app.core.time import utc_now_naive
 
 
 # A membership course still gives learners a useful, concrete trial.  The
@@ -121,6 +122,67 @@ class LearningUserCourseService(MembershipTableService):
         self.plan_benefits = MembershipPlanBenefitService(db)
         self.benefit_courses = MembershipBenefitCourseService(db)
 
+    def _membership_prompt(self, course, user_id, benefit_ids):
+        """Build learner-facing access copy on the server.
+
+        Clients render this object verbatim. Keeping the copy and the
+        expired-versus-never-subscribed decision here means a wording change
+        does not require an Android or Web release.
+        """
+        if not benefit_ids:
+            return {
+                "code": "membership_unavailable",
+                "title": "暂时无法解锁",
+                "message": "这部分内容暂时没有可用的会员权益，请稍后再试。",
+                "action_text": "知道了",
+            }
+
+        records = self.user_memberships.dao.list_for_user(user_id)
+        plan_ids = [record["membership_plan_id"] for record in records]
+        matching_benefits = set(
+            self.plan_benefits.dao.enabled_benefit_ids_for_plans(plan_ids, benefit_ids)
+        )
+        matching_records = []
+        for record in records:
+            record_benefits = set(
+                self.plan_benefits.dao.enabled_benefit_ids_for_plans(
+                    [record["membership_plan_id"]], benefit_ids
+                )
+            )
+            if record_benefits & matching_benefits:
+                matching_records.append(record)
+
+        expired = [
+            record
+            for record in matching_records
+            if record["status"] in {"expired", "cancelled", "revoked"}
+            or (record["ends_at"] is not None and record["ends_at"] <= utc_now_naive())
+        ]
+        if expired:
+            previous = max(
+                expired,
+                key=lambda record: record["ends_at"] or record["starts_at"],
+            )
+            plan_name = previous.get("plan_name") or course.get("title") or "会员"
+            ended_at = previous.get("ends_at")
+            ended_label = ended_at.strftime("%Y年%-m月%-d日") if ended_at else "此前"
+            return {
+                "code": "membership_expired",
+                "title": "会员已到期",
+                "message": f"你的{plan_name}已于{ended_label}到期，续期后可以继续学习这部分内容。",
+                "action_text": "续期会员",
+                "plan_name": plan_name,
+                "ended_at": ended_at,
+            }
+
+        course_name = course.get("title") or course.get("course_code") or "这部分内容"
+        return {
+            "code": "membership_required",
+            "title": "需要会员权限",
+            "message": f"开通会员后即可学习{course_name}的完整内容。",
+            "action_text": "查看会员方案",
+        }
+
     def course_access(self, user, course):
         """Resolve current access without persisting a duplicate entitlement flag.
 
@@ -137,7 +199,11 @@ class LearningUserCourseService(MembershipTableService):
 
         benefit_ids = self.benefit_courses.dao.enabled_benefit_ids_for_course(course["id"])
         if not benefit_ids:
-            return {"access_state": "locked", "membership_id": None}
+            return {
+                "access_state": "locked",
+                "membership_id": None,
+                "access_prompt": self._membership_prompt(course, user["id"], benefit_ids),
+            }
         memberships = self.user_memberships.dao.active_for_user(user["id"])
         granted_ids = set(
             self.plan_benefits.dao.enabled_benefit_ids_for_plans(
@@ -146,7 +212,11 @@ class LearningUserCourseService(MembershipTableService):
             )
         )
         if not granted_ids:
-            return {"access_state": "locked", "membership_id": None}
+            return {
+                "access_state": "locked",
+                "membership_id": None,
+                "access_prompt": self._membership_prompt(course, user["id"], benefit_ids),
+            }
         membership = next(
             (
                 row
@@ -163,6 +233,7 @@ class LearningUserCourseService(MembershipTableService):
         return {
             "access_state": "available",
             "membership_id": membership["id"] if membership else None,
+            "access_prompt": None,
         }
 
     def _topic_preview_courses(self, course):
@@ -225,6 +296,7 @@ class LearningUserCourseService(MembershipTableService):
         linked_courses = []
         preview_lesson_ids = set()
         has_membership_course = False
+        locked_prompts = []
         catalog = self.catalog
         material_lessons = catalog.material_lessons.dao.list_lessons(material_id)
 
@@ -242,16 +314,20 @@ class LearningUserCourseService(MembershipTableService):
                 return {
                     "access_state": "available",
                     "membership_id": access.get("membership_id"),
+                    "access_prompt": None,
                     "preview_lesson_count": None,
                     "requires_membership": course["access_policy"] == "benefit",
                     "unlocked_lesson_indexes": None,
                 }
+            if access.get("access_prompt"):
+                locked_prompts.append(access["access_prompt"])
             preview_lesson_ids.update(self.preview_lesson_ids(course))
 
         if not linked_courses:
             return {
                 "access_state": "available",
                 "membership_id": None,
+                "access_prompt": None,
                 "preview_lesson_count": None,
                 "requires_membership": False,
                 "unlocked_lesson_indexes": None,
@@ -264,6 +340,10 @@ class LearningUserCourseService(MembershipTableService):
         return {
             "access_state": "preview",
             "membership_id": None,
+            "access_prompt": next(
+                (prompt for prompt in locked_prompts if prompt.get("code") == "membership_expired"),
+                locked_prompts[0] if locked_prompts else None,
+            ),
             "preview_lesson_count": len(unlocked_indexes),
             "requires_membership": has_membership_course,
             "unlocked_lesson_indexes": unlocked_indexes,
@@ -434,9 +514,13 @@ class MembershipService:
 
     @staticmethod
     def _naive_utc(value):
-        if value is None or value.tzinfo is None:
+        if value is None:
             return value
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
+        if value.tzinfo is None:
+            # API callers that still send a naive value are treated as UTC.
+            # The web admin form sends an explicit offset before this point.
+            return value
+        return value.astimezone(UTC).replace(tzinfo=None)
 
     def list_plans(self, q="", status=None, page=1, page_size=20):
         return self.plans.list(q, status, page, page_size)
@@ -630,7 +714,7 @@ class MembershipService:
         values["starts_at"] = starts_at
         values["ends_at"] = ends_at
         if values["status"] in {"cancelled", "revoked"} and values["cancelled_at"] is None:
-            values["cancelled_at"] = datetime.now()
+            values["cancelled_at"] = utc_now_naive()
         if membership_id is None:
             values["user_id"] = user_id
             values["granted_by"] = actor["id"]
@@ -680,6 +764,7 @@ class MembershipService:
                 **result,
                 "access_state": "preview",
                 "membership_id": None,
+                "access_prompt": access.get("access_prompt"),
                 "preview_lesson_count": sum(
                     lesson["id"] in preview_lesson_ids
                     for lesson in result["lessons"]

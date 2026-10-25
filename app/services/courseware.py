@@ -677,6 +677,33 @@ class NoteCoursewareService:
             if line.strip()
         ]
 
+    @classmethod
+    def _split_inline_bilingual(cls, value):
+        """Split compact ``English中文`` source rows into two clean values.
+
+        A number of older note rows were imported without a delimiter between
+        the English example and its Chinese translation.  Keep labelled rows
+        such as ``direct = 直接的`` intact, while recovering the compact
+        bilingual examples used by the courseware parser.
+        """
+        value = cls._single_line(value)
+        if not value or not re.search(r"[A-Za-z]", value) or not re.search(r"[\u4e00-\u9fff]", value):
+            return None
+        if re.search(r"(?:^|\s)[=:：](?:\s|$)", value):
+            return None
+        boundary = re.search(r"[\u4e00-\u9fff]", value)
+        if not boundary:
+            return None
+        english = value[: boundary.start()].strip()
+        chinese = value[boundary.start():].strip()
+        if not english or not chinese:
+            return None
+        # A sentence ending in punctuation is unambiguous.  Short Chinese
+        # glosses cover compact rows such as ``issue a directive发布指令``.
+        if not english.endswith((".", "!", "?")) and len(chinese) > 20:
+            return None
+        return english, chinese
+
     @staticmethod
     def _is_english(text):
         return bool(re.search(r"[A-Za-z]", text)) and not text.startswith(("=", "→"))
@@ -691,8 +718,16 @@ class NoteCoursewareService:
         pairs = []
         for index in range(len(lines) - 1):
             english, chinese = lines[index], lines[index + 1]
+            inline = cls._split_inline_bilingual(english)
+            if inline:
+                pairs.append({"english": inline[0], "chinese": inline[1]})
+                continue
             if cls._is_english(english) and cls._is_chinese(chinese):
                 pairs.append({"english": english, "chinese": chinese})
+        if lines:
+            inline = cls._split_inline_bilingual(lines[-1])
+            if inline:
+                pairs.append({"english": inline[0], "chinese": inline[1]})
         return pairs
 
     @staticmethod
@@ -1183,7 +1218,11 @@ class NoteCoursewareService:
             # but leave numbered headings such as ``1. take down a post`` intact.
             value = re.sub(r"^[^\w\u4e00-\u9fff①②③④⑤⑥⑦⑧⑨⑩]+", "", value).strip()
             if value and value != "⸻":
-                lines.append((raw, value))
+                inline = cls._split_inline_bilingual(value)
+                if inline:
+                    lines.extend(((raw, inline[0]), (raw, inline[1])))
+                else:
+                    lines.append((raw, value))
         return lines
 
     @classmethod
@@ -1611,29 +1650,59 @@ class NoteCoursewareService:
 
     @classmethod
     def _comparison_items(cls, text):
-        lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
-        headers, pairs = [], []
-        for index, line in enumerate(lines[:-1]):
-            line = re.sub(r"^[🎯🧩💬📖🆚⚠️🧠]\s*", "", line)
-            if "记忆" in line:
+        raw_lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+        start = next(
+            (
+                index
+                for index, line in enumerate(raw_lines)
+                if "🆚" in line or re.search(r"\b\w+\s+vs\s+\w+\b", line, re.I)
+            ),
+            None,
+        )
+        if start is None:
+            return []
+
+        items = []
+        index = start + 1
+        while index < len(raw_lines):
+            raw = raw_lines[index]
+            if any(marker in raw for marker in ("🧠", "记忆方法", "⚠️")):
                 break
-            next_line = lines[index + 1]
-            if " vs " in line.lower():
+            line = re.sub(r"^[🎯🧩💬📖🆚⚠️🧠]\s*", "", raw).strip()
+            header = re.match(
+                r"^(?P<expression>[A-Za-z][A-Za-z0-9 /+'’().-]*?)\s*=\s*(?P<meaning>[\u4e00-\u9fff].*)$",
+                line,
+            )
+            if not header:
+                index += 1
                 continue
-            if cls._is_english(line) and cls._is_chinese(next_line):
-                if cls._is_sentence(line):
-                    pairs.append({"english": line, "chinese": next_line})
-                elif len(headers) < 2:
-                    headers.append({"expression": line, "meaning": re.sub(r"^👉\s*", "", next_line)})
-        return [
-            {
-                **header,
+
+            expression = header.group("expression").strip()
+            meaning = header.group("meaning").strip()
+            index += 1
+            if index >= len(raw_lines):
+                break
+            example = cls._split_inline_bilingual(raw_lines[index])
+            if example:
+                english, chinese = example
+                index += 1
+            elif index + 1 < len(raw_lines):
+                english = raw_lines[index].strip()
+                chinese = raw_lines[index + 1].strip()
+                if not (cls._is_english(english) and cls._is_chinese(chinese)):
+                    index += 1
+                    continue
+                index += 2
+            else:
+                break
+            items.append({
+                "expression": expression,
+                "meaning": meaning,
                 "label": "易混表达",
-                "english": pair["english"],
-                "chinese": pair["chinese"],
-            }
-            for header, pair in zip(headers, pairs[:2])
-        ]
+                "english": english,
+                "chinese": chinese,
+            })
+        return items
 
     @classmethod
     def _memory(cls, item, meaning):
@@ -1643,7 +1712,12 @@ class NoteCoursewareService:
             None,
         )
         candidates = lines[memory_start + 1:] if memory_start is not None else []
-        return next((line for line in candidates if line and len(line) <= 72), meaning)
+        memory = next((line for line in candidates if line and len(line) <= 72), meaning)
+        if re.search(r"[\u4e00-\u9fff]", memory) and re.search(r"[A-Za-z]", memory):
+            # Older memory notes sometimes omitted the delimiter between two
+            # bilingual definitions (for example ``指导directive = ...``).
+            memory = re.sub(r"([\u4e00-\u9fff])(?=[A-Za-z])", r"\1；", memory)
+        return memory
 
     @classmethod
     def _brief_meaning(cls, item, fallback):
@@ -3368,7 +3442,10 @@ class NoteCoursewareService:
         usage_text = item["explanation"] or ""
         examples_text = item["examples"] or ""
         pairs = self._pairs(f"{usage_text}\n{examples_text}")
-        key_sentence = pairs[0] if pairs else {"english": phrase, "chinese": meaning}
+        key_sentence = next(
+            (pair for pair in pairs if self._is_sentence(pair.get("english", ""))),
+            pairs[0] if pairs else {"english": phrase, "chinese": meaning},
+        )
         uses = self._usage_groups(usage_text, pairs, item, examples_text)
         if not uses:
             # Some older cards contain only a definition.  They still need a

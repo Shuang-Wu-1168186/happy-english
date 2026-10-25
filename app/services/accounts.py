@@ -1,12 +1,13 @@
 """Business rules for user accounts and login-audit records."""
 
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from app.core.security import hash_password, verify_password
+from app.core.time import utc_now_naive
 from app.dao.accounts import LoginAuditDAO, UserDAO
 from app.dao.membership import MembershipPlanDAO, UserMembershipDAO
 from app.services.wechat import VerifiedPhoneNumber
@@ -124,7 +125,7 @@ class UserService:
         plan = MembershipPlanDAO(self.db).active_default()
         if not plan:
             return
-        starts_at = datetime.now()
+        starts_at = utc_now_naive()
         ends_at = (
             starts_at + timedelta(days=plan["duration_days"])
             if plan["duration_days"]
