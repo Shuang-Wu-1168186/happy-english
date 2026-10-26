@@ -48,15 +48,16 @@ generation, and analytics ingestion endpoints.
 
 ## Analytics ingestion log
 
-In production, `POST /api/analytics/events:batch` stops at Nginx.  Its bounded
+In production, `POST /api/analytics/events:batch` stops at Nginx. Its bounded
 JSON request body is appended to `/home/admin/logs/happy-english-analytics.log`
-as one JSON Lines record, and the response is `202 {"accepted":true}` with
-`X-Analytics-Ingest: nginx`.  It is never proxied to Uvicorn or processed by
-Python.  The embedded Nginx handler only causes the request body to be read;
-the `access_log` directive performs the write.
+as a JSON Lines record containing only `time` and `request_body`, and the
+response is `202 {"accepted":true}` with `X-Analytics-Ingest: nginx`. It is
+never proxied to Uvicorn or processed by Python. The embedded Nginx handler
+only causes the request body to be read; the `access_log` directive performs
+the write.
 
 The file is retained for 14 daily rotations by the supplied logrotate rule.
-Inspect a readable event body with `jq -r '.body' /home/admin/logs/happy-english-analytics.log`.
+Inspect a readable event body with `jq -r '.request_body' /home/admin/logs/happy-english-analytics.log`.
 Do not add credentials, learner text, notes, audio, contact details, or invite
 codes to event payloads: this file intentionally preserves the original body.
 
