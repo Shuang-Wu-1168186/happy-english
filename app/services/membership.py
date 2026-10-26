@@ -169,18 +169,23 @@ class LearningUserCourseService(MembershipTableService):
             return {
                 "code": "membership_expired",
                 "title": "会员已到期",
-                "message": f"你的{plan_name}已于{ended_label}到期，续期后可以继续学习这部分内容。",
-                "action_text": "续期会员",
+                "message": (
+                    f"你的{plan_name}已于{ended_label}到期。"
+                    "请前往“设置 → 关于应用 → 联系作者”添加作者微信，咨询续期。"
+                ),
+                "action_text": "我知道了",
                 "plan_name": plan_name,
                 "ended_at": ended_at,
             }
 
-        course_name = course.get("title") or course.get("course_code") or "这部分内容"
         return {
             "code": "membership_required",
-            "title": "需要会员权限",
-            "message": f"开通会员后即可学习{course_name}的完整内容。",
-            "action_text": "查看会员方案",
+            "title": "需要开通会员",
+            "message": (
+                "这是会员课程。请前往“设置 → 关于应用 → 联系作者”"
+                "添加作者微信，咨询开通会员。"
+            ),
+            "action_text": "我知道了",
         }
 
     def course_access(self, user, course):

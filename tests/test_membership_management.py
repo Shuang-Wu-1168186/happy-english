@@ -161,6 +161,21 @@ def test_admin_configures_material_membership_and_course_access(client):
     )
     assert locked.status_code == 403
 
+    preview = client.post(
+        f"/api/learning/courses/{course_id}/open", headers=learner_headers
+    )
+    assert preview.status_code == 200
+    assert preview.json()["access_state"] == "preview"
+    assert preview.json()["access_prompt"] == {
+        "code": "membership_required",
+        "title": "需要开通会员",
+        "message": (
+            "这是会员课程。请前往“设置 → 关于应用 → 联系作者”"
+            "添加作者微信，咨询开通会员。"
+        ),
+        "action_text": "我知道了",
+    }
+
     # Member materials must not be retrievable through the old, resource-wide
     # content endpoint, which has no course context for applying the preview.
     assert client.get("/api/content/textbook", headers=learner_headers).status_code == 403
