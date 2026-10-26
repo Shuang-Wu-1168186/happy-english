@@ -44,6 +44,17 @@ class CoursewareBlockService:
 
     dao_type = CoursewareBlockDAO
     source_dao_type = CoursewareBlockSourceDAO
+    wordly_wise_block_types = frozenset(
+        {
+            "wordly_wise_meaning_match",
+            "wordly_wise_connections",
+            "wordly_wise_application",
+            "wordly_wise_reading",
+            "wordly_wise_comprehension",
+            "wordly_wise_extension",
+            "wordly_wise_review",
+        }
+    )
 
     def __init__(self, db):
         self.db = db
@@ -73,9 +84,112 @@ class CoursewareBlockService:
         cls._string(value, "chinese", label)
 
     @classmethod
+    def _list(cls, payload, key, label, minimum=1):
+        value = payload.get(key)
+        if not isinstance(value, list) or len(value) < minimum:
+            raise HTTPException(422, f"{label} requires at least {minimum} {key}.")
+        return value
+
+    @classmethod
+    def _wordly_wise_source(cls, payload, label):
+        if payload.get("family") != "wordly_wise":
+            raise HTTPException(422, f"{label} requires family wordly_wise.")
+        value = payload.get("source")
+        if not isinstance(value, dict):
+            raise HTTPException(422, f"{label} requires a source object.")
+        cls._string(value, "document", f"{label}.source")
+        cls._string(value, "section", f"{label}.source")
+        if not isinstance(value.get("source_lesson"), int) or value["source_lesson"] < 1:
+            raise HTTPException(422, f"{label}.source requires a positive source_lesson.")
+        has_page = isinstance(value.get("pdf_page"), int) or (
+            isinstance(value.get("pdf_pages"), list) and bool(value["pdf_pages"])
+        )
+        if not has_page:
+            raise HTTPException(422, f"{label}.source requires pdf_page or pdf_pages.")
+
+    @classmethod
+    def _wordly_wise_quiz_items(cls, payload, label):
+        items = cls._list(payload, "items", label)
+        for index, item in enumerate(items, start=1):
+            item_label = f"{label}.items[{index}]"
+            if not isinstance(item, dict):
+                raise HTTPException(422, f"{item_label} must be an object.")
+            cls._string(item, "prompt", item_label)
+            choices = cls._list(item, "choices", item_label, minimum=2)
+            choice_ids = set()
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    raise HTTPException(422, f"{item_label}.choices must contain objects.")
+                choice_id = cls._string(choice, "id", f"{item_label}.choices")
+                cls._string(choice, "text", f"{item_label}.choices")
+                choice_ids.add(choice_id)
+            if cls._string(item, "answer", item_label) not in choice_ids:
+                raise HTTPException(422, f"{item_label}.answer must match a choice id.")
+            cls._string(item, "explanation", item_label)
+
+    @classmethod
+    def _validate_wordly_wise_payload(cls, block_type, payload):
+        label = block_type
+        cls._wordly_wise_source(payload, label)
+        if block_type in {"wordly_wise_meaning_match", "wordly_wise_application"}:
+            cls._string(payload, "intro", label)
+            cls._wordly_wise_quiz_items(payload, label)
+            return
+        if block_type == "wordly_wise_connections":
+            cls._string(payload, "intro", label)
+            for index, item in enumerate(cls._list(payload, "items", label), start=1):
+                item_label = f"{label}.items[{index}]"
+                if not isinstance(item, dict):
+                    raise HTTPException(422, f"{item_label} must be an object.")
+                words = cls._list(item, "words", item_label, minimum=3)
+                if not all(isinstance(word, str) and word.strip() for word in words):
+                    raise HTTPException(422, f"{item_label}.words must contain text.")
+                if cls._string(item, "answer", item_label) not in words:
+                    raise HTTPException(422, f"{item_label}.answer must be one of its words.")
+                cls._string(item, "reason", item_label)
+            return
+        if block_type == "wordly_wise_reading":
+            cls._string(payload, "title", label)
+            cls._string(payload, "intro", label)
+            for index, paragraph in enumerate(cls._list(payload, "paragraphs", label), start=1):
+                if not isinstance(paragraph, dict):
+                    raise HTTPException(422, f"{label}.paragraphs[{index}] must be an object.")
+                cls._string(paragraph, "english", f"{label}.paragraphs[{index}]")
+                cls._string(paragraph, "chinese", f"{label}.paragraphs[{index}]")
+            return
+        if block_type == "wordly_wise_comprehension":
+            cls._string(payload, "intro", label)
+            for index, item in enumerate(cls._list(payload, "items", label), start=1):
+                if not isinstance(item, dict):
+                    raise HTTPException(422, f"{label}.items[{index}] must be an object.")
+                for key in ("question", "cue", "sample_answer"):
+                    cls._string(item, key, f"{label}.items[{index}]")
+            return
+        if block_type == "wordly_wise_extension":
+            cls._string(payload, "word", label)
+            cls._string(payload, "prompt", label)
+            for index, form in enumerate(cls._list(payload, "forms", label), start=1):
+                if not isinstance(form, dict):
+                    raise HTTPException(422, f"{label}.forms[{index}] must be an object.")
+                cls._string(form, "part_of_speech", f"{label}.forms[{index}]")
+                cls._string(form, "definition", f"{label}.forms[{index}]")
+            return
+        if block_type == "wordly_wise_review":
+            for key in ("intro", "riddle", "riddle_answer"):
+                cls._string(payload, key, label)
+            for index, item in enumerate(cls._list(payload, "items", label), start=1):
+                if not isinstance(item, dict):
+                    raise HTTPException(422, f"{label}.items[{index}] must be an object.")
+                cls._string(item, "prompt", f"{label}.items[{index}]")
+                cls._string(item, "answer", f"{label}.items[{index}]")
+
+    @classmethod
     def validate_payload(cls, block_type, payload):
         if not isinstance(payload, dict):
             raise HTTPException(422, "payload must be an object.")
+        if block_type in cls.wordly_wise_block_types:
+            cls._validate_wordly_wise_payload(block_type, payload)
+            return
         if block_type == "hero":
             cls._string(payload, "phrase", "hero")
             cls._string(payload, "meaning", "hero")

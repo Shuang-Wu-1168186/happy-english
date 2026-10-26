@@ -508,7 +508,21 @@ class LearningMaterialLessonInput(Input):
 
 class CoursewareBlockInput(Input):
     block_code: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,119}$")
-    block_type: Literal["hero", "usage_group", "dialogue", "comparison", "output", "recap"]
+    block_type: Literal[
+        "hero",
+        "usage_group",
+        "dialogue",
+        "comparison",
+        "output",
+        "recap",
+        "wordly_wise_meaning_match",
+        "wordly_wise_connections",
+        "wordly_wise_application",
+        "wordly_wise_reading",
+        "wordly_wise_comprehension",
+        "wordly_wise_extension",
+        "wordly_wise_review",
+    ]
     title: str = Field(default="", max_length=255)
     payload: dict[str, Any]
     sort_order: int = 0
