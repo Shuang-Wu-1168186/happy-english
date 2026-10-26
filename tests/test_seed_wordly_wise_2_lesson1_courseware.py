@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import models as m
+from app import schemas as s
 from app.services.courseware import CoursewareBlockService
 from app.services.learning_catalog import LearningCatalogService
 from scripts.seed_wordly_wise_2_lesson1_courseware import (
@@ -110,6 +111,14 @@ def test_seed_wordly_wise_2_lesson1_courseware_is_idempotent_and_public():
     _prepare_wordly_wise_2(engine)
 
     for block in BLOCKS:
+        input_payload = s.CoursewareBlockInput(
+            block_code=block.block_code,
+            block_type=block.block_type,
+            title=block.title,
+            payload=block.payload,
+            sort_order=block.sort_order,
+        )
+        assert input_payload.block_type == block.block_type
         CoursewareBlockService.validate_payload(block.block_type, block.payload)
 
     first = seed_wordly_wise_2_lesson1_courseware(engine)
