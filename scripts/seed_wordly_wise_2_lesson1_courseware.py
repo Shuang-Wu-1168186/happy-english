@@ -31,6 +31,12 @@ SOURCE_DOCUMENT = "Wordly Wise 3000 Book 2"
 SOURCE_LESSON = 1
 SOURCE_PDF_PAGES = (10, 11, 12, 13, 14, 15, 16, 17)
 SOURCE_BOOK_PAGES = (4, 5, 6, 7, 8, 9, 10, 11)
+CATALOG_TITLE = "Wordly Wise 2（单词与阅读）"
+CATALOG_SUMMARY = (
+    "按原书 Word List 原文整理，含词性、释义和例句；"
+    "共 15 节词汇课，并已补充 Lesson 1 的阅读与练习课件。"
+)
+CATALOG_ESTIMATED_MINUTES = 335
 
 
 @dataclass(frozen=True)
@@ -679,6 +685,38 @@ def _inserted_id(connection: Connection, result, table, where_clause) -> int:
     return int(connection.execute(select(table.c.id).where(where_clause)).scalar_one())
 
 
+def _refresh_catalog_overview(
+    connection: Connection,
+    material_id: int,
+    course_id: int,
+    actor_id: int,
+    report: dict[str, int],
+) -> None:
+    """Keep the parent card truthful once the companion lesson is present."""
+
+    connection.execute(
+        update(m.learning_material)
+        .where(m.learning_material.c.id == material_id)
+        .values(
+            title=CATALOG_TITLE,
+            summary=CATALOG_SUMMARY,
+            estimated_minutes=CATALOG_ESTIMATED_MINUTES,
+            updated_by=actor_id,
+        )
+    )
+    connection.execute(
+        update(m.learning_course)
+        .where(m.learning_course.c.id == course_id)
+        .values(
+            title=CATALOG_TITLE,
+            summary=CATALOG_SUMMARY,
+            estimated_minutes=CATALOG_ESTIMATED_MINUTES,
+            updated_by=actor_id,
+        )
+    )
+    report["catalog_rows_updated"] += 2
+
+
 def _upsert_lesson(
     connection: Connection, material_id: int, actor_id: int, report: dict[str, int]
 ) -> int:
@@ -810,6 +848,7 @@ def seed_wordly_wise_2_lesson1_courseware(engine: Engine) -> dict[str, int]:
 
     validate_source_data()
     report = {
+        "catalog_rows_updated": 0,
         "lessons_created": 0,
         "lessons_updated": 0,
         "blocks_created": 0,
@@ -847,6 +886,7 @@ def seed_wordly_wise_2_lesson1_courseware(engine: Engine) -> dict[str, int]:
         ).scalar_one_or_none()
         if linked_material is None:
             raise RuntimeError("The Wordly Wise 2 course is not linked to its material.")
+        _refresh_catalog_overview(connection, material_id, course_id, actor_id, report)
         lesson_id = _upsert_lesson(connection, material_id, actor_id, report)
         _replace_blocks(connection, lesson_id, actor_id, report)
 

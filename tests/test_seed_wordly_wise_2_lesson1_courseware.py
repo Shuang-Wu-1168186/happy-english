@@ -124,6 +124,14 @@ def test_seed_wordly_wise_2_lesson1_courseware_is_idempotent_and_public():
     assert first["course_id"] == second["course_id"]
 
     with engine.connect() as connection:
+        material = connection.execute(
+            select(m.learning_material).where(
+                m.learning_material.c.id == first["material_id"]
+            )
+        ).mappings().one()
+        course = connection.execute(
+            select(m.learning_course).where(m.learning_course.c.id == first["course_id"])
+        ).mappings().one()
         lesson = connection.execute(
             select(m.learning_material_lesson).where(
                 m.learning_material_lesson.c.id == first["lesson_id"]
@@ -133,6 +141,9 @@ def test_seed_wordly_wise_2_lesson1_courseware_is_idempotent_and_public():
         assert lesson["lesson_code"] == LESSON_CODE
         assert lesson["lesson_format"] == "courseware"
         assert lesson["content_status"] == "published"
+        assert material["title"] == "Wordly Wise 2（单词与阅读）"
+        assert "Lesson 1 的阅读与练习" in material["summary"]
+        assert course["estimated_minutes"] == 335
         assert source_metadata["courseware_family"] == "wordly_wise"
         assert source_metadata["source"]["pdf_pages"] == list(range(10, 18))
         assert connection.scalar(
