@@ -474,6 +474,41 @@ def test_note_item_language_register_can_be_filtered_and_manually_corrected(clie
     assert [entry["id"] for entry in scenario_filtered["items"]] == [item["id"]]
 
 
+def test_note_item_language_register_can_be_marked_while_browsing_cards(client):
+    item_id = opaque_id(client, 1)
+    learner_headers = sign_in(client, "learner_test")
+    assert (
+        client.patch(
+            f"/api/content/note-items/{item_id}/language-register",
+            headers=learner_headers,
+            json={"language_register": "common_spoken"},
+        ).status_code
+        == 403
+    )
+
+    headers = sign_in(client)
+    marked = client.patch(
+        f"/api/content/note-items/{item_id}/language-register",
+        headers=headers,
+        json={"language_register": "formal_spoken"},
+    )
+    assert marked.status_code == 200
+    payload = marked.json()
+    assert payload["language_register"] == "formal_spoken"
+    assert payload["classification_source"] == "manual"
+    assert payload["classification_confidence"] == 100
+    assert payload["register_reason"] == "管理员在网页浏览笔记卡片时手动标记为稍微正式。"
+
+    assert (
+        client.patch(
+            f"/api/content/note-items/{item_id}/language-register",
+            headers=headers,
+            json={"language_register": "written"},
+        ).status_code
+        == 422
+    )
+
+
 def test_interview_children_replaced_in_transaction(client):
     headers = sign_in(client)
     payload = {

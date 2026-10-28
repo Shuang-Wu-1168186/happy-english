@@ -169,6 +169,12 @@ class NoteItemInput(Input):
         return url
 
 
+class NoteItemLanguageRegisterInput(Input):
+    """The two quick labels available while browsing note cards on the web."""
+
+    language_register: Literal["common_spoken", "formal_spoken"]
+
+
 class SentenceInput(Input):
     tag: str = Field(default="Everyday Speaking", max_length=100)
     en: str = Field(min_length=1, max_length=20000)

@@ -315,6 +315,27 @@ class ContentService:
         counts = NoteItemFrequencyService(self.db).counts_for_items(user_id, [item["id"] for item in items])
         return [{**item, "frequency_count": counts.get(item["id"], 0)} for item in items]
 
+    def update_note_item_language_register(self, item_id, language_register, admin):
+        """Save the compact, in-card manual classification without rewriting the card."""
+
+        service = self.resource_service("note-items")
+        service.require(item_id, admin=True)
+        label = {
+            "common_spoken": "日常口语",
+            "formal_spoken": "稍微正式",
+        }[language_register]
+        values = {
+            "language_register": language_register,
+            "register_reason": f"管理员在网页浏览笔记卡片时手动标记为{label}。",
+            "classification_confidence": 100,
+            "classification_source": "manual",
+        }
+        if "updated_by" in service.dao.table.c:
+            values["updated_by"] = admin["id"]
+        service.dao.update(item_id, values)
+        self.db.commit()
+        return self.get_content("note-items", item_id, admin)
+
     def save(self, resource, payload, admin, item_id=None):
         schema = INPUT_SCHEMAS.get(resource)
         if not schema:

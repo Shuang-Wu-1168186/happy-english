@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Body, Query, Request, UploadFile
 
+from app import schemas as s
 from app.api.dependencies import Admin, Db, User
 from app.api.opaque_ids import OpaqueIdRoute
 from app.services.content import ContentService
@@ -60,6 +61,18 @@ def increment_note_item_frequency(item_id: int, db: Db, user: User):
     frequency_count = NoteItemFrequencyService(db).increment(user["id"], item_id)
     db.commit()
     return {"success": True, "item_id": item_id, "frequency_count": frequency_count}
+
+
+@router.patch("/content/note-items/{item_id}/language-register")
+def update_note_item_language_register(
+    item_id: int,
+    payload: s.NoteItemLanguageRegisterInput,
+    db: Db,
+    admin: Admin,
+):
+    return ContentService(db).update_note_item_language_register(
+        item_id, payload.language_register, admin
+    )
 
 
 @router.post("/content/{resource}", status_code=201)
