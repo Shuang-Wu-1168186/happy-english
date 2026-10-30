@@ -12,6 +12,7 @@ from app.services.membership import MEMBERSHIP_TABLE_SERVICE_TYPES
 from app.services.note_frequency import NOTE_ITEM_FREQUENCY_TABLE_SERVICE_TYPES
 from app.services.progress import StudyProgressService
 from app.services.private_zone import PRIVATE_ZONE_TABLE_SERVICE_TYPES
+from app.services.vocabulary import VOCABULARY_TABLE_SERVICE_TYPES
 
 TABLE_SERVICE_TYPES = {
     **ANALYTICS_TABLE_SERVICE_TYPES,
@@ -27,4 +28,5 @@ TABLE_SERVICE_TYPES = {
     "login_audit": LoginAuditService,
     "study_progress": StudyProgressService,
     **PRIVATE_ZONE_TABLE_SERVICE_TYPES,
+    **VOCABULARY_TABLE_SERVICE_TYPES,
 }

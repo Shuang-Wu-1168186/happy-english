@@ -235,6 +235,9 @@ run_once "20261021-learning-module-type" "sql/20261021_add_learning_module_type.
 run_once "20261021-seed-podcast-training-module" "sql/20261021_seed_podcast_training_module.sql"
 run_once "20261022-learning-training-items" "sql/20261022_add_learning_training_items.sql"
 run_once "20261023-seed-audio-podcast-items" "sql/20261023_seed_audio_podcast_items.sql"
+run_once "20261026-seed-nz-economy-podcast" "sql/20261026_seed_nz_economy_podcast.sql"
+run_once "20261029-group-podcast-training-items" "sql/20261029_group_podcast_training_items.sql"
+run_once "20261030-vocabulary-memory" "sql/20261030_add_vocabulary_memory.sql"
 
 if has_table "learning_course_material"; then
   mark_existing "20260927-course-material-mapping"

@@ -182,6 +182,16 @@ def archive_course(course_id: int, db: Db, user: User):
     MembershipService(db).archive_my_course(user, course_id)
 
 
+@router.get("/learning/courses/{course_id}/catalog")
+def get_course_catalog(course_id: int, db: Db, user: User):
+    return MembershipService(db).course_catalog(user, course_id)
+
+
+@router.get("/learning/courses/{course_id}/lessons/{lesson_id}")
+def get_course_lesson(course_id: int, lesson_id: int, db: Db, user: User):
+    return MembershipService(db).course_lesson(user, course_id, lesson_id)
+
+
 @router.post("/learning/courses/{course_id}/open")
 def open_course(course_id: int, db: Db, user: User):
     return MembershipService(db).open_course(user, course_id)

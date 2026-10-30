@@ -124,9 +124,10 @@ def list_app_training_items(
     db: Db,
     user: User,
     module_id: int | None = Query(default=None, gt=0),
+    topic_id: int | None = Query(default=None, gt=0),
     resource_type: Literal["podcast", "speaking"] | None = None,
 ):
-    return LearningCatalogService(db).list_training_items(module_id, resource_type)
+    return LearningCatalogService(db).list_training_items(module_id, resource_type, topic_id)
 
 
 @router.get("/learning/app/training-items/{item_id}")
@@ -274,13 +275,14 @@ def list_admin_training_items(
     admin: Admin,
     q: str = Query(default="", max_length=200),
     module_id: int | None = Query(default=None, gt=0),
+    topic_id: int | None = Query(default=None, gt=0),
     resource_type: Literal["podcast", "speaking"] | None = None,
     is_published: int | None = Query(default=None, ge=0, le=1),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
     return LearningCatalogService(db).list_admin_training_items(
-        q, module_id, resource_type, is_published, page, page_size
+        q, module_id, topic_id, resource_type, is_published, page, page_size
     )
 
 

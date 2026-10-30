@@ -18,11 +18,26 @@ def test_training_items_support_podcast_metadata_and_opaque_ids(client):
     assert module.status_code == 201
     module_id = module.json()["id"]
 
+    topic = client.post(
+        "/api/admin/learning/topics",
+        headers=headers,
+        json={
+            "module_id": module_id,
+            "topic_code": "new-zealand-podcast-test",
+            "title": "新西兰 Podcast",
+            "title_en": "New Zealand Podcast",
+            "sort_order": 10,
+        },
+    )
+    assert topic.status_code == 201
+    topic_id = topic.json()["id"]
+
     created = client.post(
         "/api/admin/learning-training-items",
         headers=headers,
         json={
             "module_id": module_id,
+            "topic_id": topic_id,
             "resource_type": "podcast",
             "item_code": "daily-life-test",
             "title": "生活场景听力",
@@ -43,6 +58,7 @@ def test_training_items_support_podcast_metadata_and_opaque_ids(client):
     item = created.json()
     assert item["id"].startswith("hei1_")
     assert item["module_id"] == module_id
+    assert item["topic_id"] == topic_id
     assert item["audio_url"].endswith(".mp3")
     assert item["subtitle_url"].endswith(".vtt")
 
@@ -53,6 +69,13 @@ def test_training_items_support_podcast_metadata_and_opaque_ids(client):
     assert listing.status_code == 200
     assert [entry["id"] for entry in listing.json()["items"]] == [item["id"]]
     assert listing.json()["items"][0]["difficulty_code"] == "A2"
+
+    topic_listing = client.get(
+        f"/api/learning/app/training-items?module_id={module_id}&topic_id={topic_id}&resource_type=podcast",
+        headers=headers,
+    )
+    assert topic_listing.status_code == 200
+    assert [entry["id"] for entry in topic_listing.json()["items"]] == [item["id"]]
 
     detail = client.get(f"/api/learning/app/training-items/{item['id']}", headers=headers)
     assert detail.status_code == 200

@@ -201,10 +201,10 @@ class LearningModuleService(LearningCatalogTableService):
 class LearningTrainingItemService(LearningCatalogTableService):
     dao_type = LearningTrainingItemDAO
 
-    def list_public(self, module_id=None, resource_type=None):
+    def list_public(self, module_id=None, resource_type=None, topic_id=None):
         return [
             serialise_catalog(row)
-            for row in self.dao.list_items(module_id, resource_type)
+            for row in self.dao.list_items(module_id, resource_type, topic_id)
         ]
 
     def require_public_for_client(self, item_id):
@@ -223,6 +223,21 @@ class LearningTrainingItemService(LearningCatalogTableService):
         )
         if not module:
             raise HTTPException(404, "Learning catalogue record not found.")
+        topic_id = row.get("topic_id")
+        if topic_id is not None:
+            topic = (
+                self.db.execute(
+                    select(m.learning_topic).where(
+                        m.learning_topic.c.id == topic_id,
+                        m.learning_topic.c.module_id == row["module_id"],
+                        m.learning_topic.c.is_published == 1,
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if not topic:
+                raise HTTPException(404, "Learning catalogue record not found.")
         return row
 
 
@@ -745,11 +760,16 @@ class LearningCatalogService:
         result["topics"] = self.topics.list_public(module_id)
         return result
 
-    def list_training_items(self, module_id=None, resource_type=None):
+    def list_training_items(self, module_id=None, resource_type=None, topic_id=None):
+        if topic_id is not None:
+            topic = self.topics.require_public(topic_id)
+            if module_id is not None and topic["module_id"] != module_id:
+                raise HTTPException(422, "训练专题不属于所选模块。")
+            module_id = topic["module_id"]
         if module_id is not None:
             self.modules.require_public_for_client(module_id, ("training",))
         return {
-            "items": self.training_items.list_public(module_id, resource_type)
+            "items": self.training_items.list_public(module_id, resource_type, topic_id)
         }
 
     def get_training_item(self, item_id):
@@ -809,11 +829,41 @@ class LearningCatalogService:
             for index, row in enumerate(rows)
         ]
 
-    def _lesson_view(self, lesson, include_content=False, is_locked=False, template=None):
+    def _lesson_view(
+        self,
+        lesson,
+        include_content=False,
+        is_locked=False,
+        template=None,
+        section_rows=None,
+    ):
         if template is None:
             template = self._template_for_material(
                 self.materials.require_any(lesson["material_id"])
             )
+        if not include_content:
+            result = self._lesson_catalog_view(lesson, is_locked=is_locked)
+            result["template"] = template
+            if is_locked:
+                result.pop("source_resource", None)
+                result["lock_reason"] = "membership"
+            else:
+                sections = (
+                    section_rows
+                    if section_rows is not None
+                    else self.lesson_content.list_for_lesson(
+                        lesson["id"], published_only=True, include_items=False
+                    )
+                )
+                if sections:
+                    result["sections"] = sections
+            result["render_payload"] = {
+                "template": template,
+                "content_kind": template["content_kind"],
+                "content": None,
+            }
+            return result
+
         result = serialise_catalog(lesson)
         result["template"] = template
         result["is_locked"] = is_locked
@@ -832,21 +882,10 @@ class LearningCatalogService:
                 "content": None,
             }
             return result
-        if not include_content:
-            result.pop("content", None)
-            sections = self.lesson_content.list_for_lesson(
-                lesson["id"], published_only=True, include_items=False
-            )
-            if sections:
-                result["sections"] = sections
-            result["render_payload"] = {
-                "template": template,
-                "content_kind": template["content_kind"],
-                "content": None,
-            }
-            return result
         sections = (
-            self.lesson_content.list_for_lesson(lesson["id"], published_only=True)
+            section_rows
+            if section_rows is not None
+            else self.lesson_content.list_for_lesson(lesson["id"], published_only=True)
             if lesson["lesson_format"] == "structured"
             else []
         )
@@ -883,6 +922,35 @@ class LearningCatalogService:
             "source_resource": result.get("source_resource"),
             "content": result.get("source_content") or result.get("content") or {},
         }
+        return result
+
+    def _lesson_catalog_view(self, lesson, is_locked=False):
+        """Return the small, stable payload needed to draw a course directory.
+
+        A catalogue must never include every lesson's word bank, courseware
+        blocks, or reading text.  Those bodies are fetched from the individual
+        lesson endpoint only after a learner opens that lesson.
+        """
+        source = serialise_catalog(lesson)
+        fields = (
+            "id",
+            "material_id",
+            "lesson_code",
+            "title",
+            "title_en",
+            "summary",
+            "illustration_url",
+            "source_resource",
+            "lesson_format",
+            "lesson_schema_version",
+            "content_status",
+            "estimated_minutes",
+            "sort_order",
+            "updated_at",
+        )
+        result = {field: source.get(field) for field in fields}
+        result["is_locked"] = is_locked
+        result["access_state"] = "locked" if is_locked else "available"
         return result
 
     def _load_lesson_source(self, lesson):
@@ -952,6 +1020,16 @@ class LearningCatalogService:
         access = self._material_access(user, material_id)
         unlocked_indexes = access.pop("unlocked_lesson_indexes", None)
         result.update(access)
+        lesson_rows = self.material_lessons.dao.list_lessons(material_id)
+        section_rows_by_lesson = (
+            self.lesson_content.list_for_lessons(
+                [lesson["id"] for lesson in lesson_rows],
+                published_only=True,
+                include_items=False,
+            )
+            if not include_lesson_content
+            else {}
+        )
         result["lessons"] = [
             self._lesson_view(
                 lesson,
@@ -960,8 +1038,9 @@ class LearningCatalogService:
                     unlocked_indexes is not None and index not in unlocked_indexes
                 ),
                 template=template,
+                section_rows=section_rows_by_lesson.get(lesson["id"]),
             )
-            for index, lesson in enumerate(self.material_lessons.dao.list_lessons(material_id))
+            for index, lesson in enumerate(lesson_rows)
         ]
         return result
 
@@ -1022,6 +1101,7 @@ class LearningCatalogService:
         include_lesson_content=False,
         unlocked_lesson_count=None,
         unlocked_lesson_ids=None,
+        compact_lesson_catalog=False,
     ):
         course = self.courses.require_public(course_id)
         if not self._course_topic_rows(course_id, published_only=True):
@@ -1039,18 +1119,23 @@ class LearningCatalogService:
             material_view["course_sort_order"] = row["course_material_sort_order"]
             material_view["lessons"] = []
             for lesson in self.material_lessons.dao.list_lessons(material["id"]):
-                lesson_view = self._lesson_view(
-                    lesson,
-                    include_content=include_lesson_content,
-                    is_locked=(
-                        lesson["id"] not in unlocked_lesson_ids
-                        if unlocked_lesson_ids is not None
-                        else (
-                            unlocked_lesson_count is not None
-                            and lesson_index >= unlocked_lesson_count
-                        )
-                    ),
-                    template=material_view["template"],
+                is_locked = (
+                    lesson["id"] not in unlocked_lesson_ids
+                    if unlocked_lesson_ids is not None
+                    else (
+                        unlocked_lesson_count is not None
+                        and lesson_index >= unlocked_lesson_count
+                    )
+                )
+                lesson_view = (
+                    self._lesson_catalog_view(lesson, is_locked=is_locked)
+                    if compact_lesson_catalog
+                    else self._lesson_view(
+                        lesson,
+                        include_content=include_lesson_content,
+                        is_locked=is_locked,
+                        template=material_view["template"],
+                    )
                 )
                 material_view["lessons"].append(lesson_view)
                 lessons.append(lesson_view)
@@ -1067,6 +1152,31 @@ class LearningCatalogService:
                 key: value for key, value in materials[0].items() if key != "lessons"
             }
         return result
+
+    def get_course_lesson(self, course_id, lesson_id):
+        """Return one published lesson body after course access is checked.
+
+        The membership service owns authorization for this route.  This method
+        only verifies that the requested lesson belongs to the requested public
+        course and renders the lesson's full versioned payload.
+        """
+        course = self.courses.require_public(course_id)
+        if not self._course_topic_rows(course_id, published_only=True):
+            raise HTTPException(404, "Learning catalogue record not found.")
+        lesson = self.material_lessons.require_any(lesson_id)
+        if lesson["is_published"] != 1:
+            raise HTTPException(404, "Learning course lesson not found.")
+        material_ids = {
+            row["id"] for row in self._course_material_rows(course, published_only=True)
+        }
+        if lesson["material_id"] not in material_ids:
+            raise HTTPException(404, "Learning course lesson not found.")
+        material = self.materials.require_public(lesson["material_id"])
+        return self._lesson_view(
+            lesson,
+            include_content=True,
+            template=self._template_for_material(material),
+        )
 
     def list_admin_materials(self, q="", topic_id=None, is_published=None, page=1, page_size=20):
         if topic_id is not None:
@@ -1135,6 +1245,7 @@ class LearningCatalogService:
         self,
         q="",
         module_id=None,
+        topic_id=None,
         resource_type=None,
         is_published=None,
         page=1,
@@ -1145,7 +1256,7 @@ class LearningCatalogService:
             if module["module_type"] != "training":
                 raise HTTPException(422, "训练资源必须归属于 training 模块。")
         result = self.training_items.dao.list_admin_items(
-            q, module_id, resource_type, is_published, page, page_size
+            q, module_id, topic_id, resource_type, is_published, page, page_size
         )
         return {
             **result,
@@ -1273,6 +1384,10 @@ class LearningCatalogService:
         module = self.modules.require_any(payload.module_id)
         if module["module_type"] != "training":
             raise HTTPException(422, "训练资源必须归属于 training 模块。")
+        if payload.topic_id is not None:
+            topic = self.topics.require_any(payload.topic_id)
+            if topic["module_id"] != payload.module_id:
+                raise HTTPException(422, "训练资源专题必须归属于同一个训练模块。")
         values = self._none_when_blank(
             payload.model_dump(),
             (

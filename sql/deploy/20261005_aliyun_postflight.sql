@@ -30,6 +30,13 @@ FROM (
     UNION ALL SELECT 'private_zone_item'
     UNION ALL SELECT 'private_zone_shortcut'
     UNION ALL SELECT 'personal_note'
+    UNION ALL SELECT 'vocabulary_deck'
+    UNION ALL SELECT 'vocabulary_word'
+    UNION ALL SELECT 'vocabulary_word_sense'
+    UNION ALL SELECT 'vocabulary_word_example'
+    UNION ALL SELECT 'vocabulary_deck_word'
+    UNION ALL SELECT 'user_vocabulary_progress'
+    UNION ALL SELECT 'vocabulary_review_log'
 ) AS required
 LEFT JOIN information_schema.tables AS existing
   ON existing.table_schema = DATABASE() AND existing.table_name = required.table_name
@@ -82,7 +89,24 @@ UNION ALL SELECT 'membership_plans', COUNT(*) FROM `membership_plan`
 UNION ALL SELECT 'membership_benefits', COUNT(*) FROM `membership_benefit`
 UNION ALL SELECT 'note_item_frequency_records', COUNT(*) FROM `english_note_item_frequency`
 UNION ALL SELECT 'private_zone_features', COUNT(*) FROM `private_zone_feature`
-UNION ALL SELECT 'family_groups', COUNT(*) FROM `family_group`;
+UNION ALL SELECT 'family_groups', COUNT(*) FROM `family_group`
+UNION ALL SELECT 'vocabulary_decks', COUNT(*) FROM `vocabulary_deck`
+UNION ALL SELECT 'vocabulary_words', COUNT(*) FROM `vocabulary_word`
+UNION ALL SELECT 'vocabulary_deck_words', COUNT(*) FROM `vocabulary_deck_word`
+UNION ALL SELECT 'vocabulary_user_progress', COUNT(*) FROM `user_vocabulary_progress`
+UNION ALL SELECT 'vocabulary_review_logs', COUNT(*) FROM `vocabulary_review_log`;
+
+SELECT
+    deck.`deck_code`,
+    deck.`title`,
+    deck.`is_published`,
+    COUNT(deck_word.`id`) AS `enabled_word_count`
+FROM `vocabulary_deck` AS deck
+LEFT JOIN `vocabulary_deck_word` AS deck_word
+  ON deck_word.`deck_id` = deck.`id`
+ AND deck_word.`is_enabled` = 1
+WHERE deck.`deck_code` = 'software-english-demo'
+GROUP BY deck.`id`, deck.`deck_code`, deck.`title`, deck.`is_published`;
 
 SELECT
     module.`module_code`,

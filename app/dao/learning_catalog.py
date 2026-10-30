@@ -44,18 +44,31 @@ class LearningTrainingItemDAO(LearningCatalogTableDAO):
             conditions.append(m.learning_module.c.is_published == 1)
         return select(m.learning_module.c.id).where(*conditions)
 
-    def list_items(self, module_id=None, resource_type=None):
+    def list_items(self, module_id=None, resource_type=None, topic_id=None):
         conditions = [self.table.c.module_id.in_(self._training_module_ids())]
         if module_id is not None:
             conditions.append(self.table.c.module_id == module_id)
         if resource_type:
             conditions.append(self.table.c.resource_type == resource_type)
+        if topic_id is not None:
+            conditions.append(self.table.c.topic_id == topic_id)
+        else:
+            published_topic_ids = select(m.learning_topic.c.id).where(
+                m.learning_topic.c.is_published == 1
+            )
+            conditions.append(
+                or_(
+                    self.table.c.topic_id.is_(None),
+                    self.table.c.topic_id.in_(published_topic_ids),
+                )
+            )
         return self.list_published(*conditions)
 
     def list_admin_items(
         self,
         q="",
         module_id=None,
+        topic_id=None,
         resource_type=None,
         is_published=None,
         page=1,
@@ -73,6 +86,8 @@ class LearningTrainingItemDAO(LearningCatalogTableDAO):
             )
         if module_id is not None:
             conditions.append(self.table.c.module_id == module_id)
+        if topic_id is not None:
+            conditions.append(self.table.c.topic_id == topic_id)
         if resource_type:
             conditions.append(self.table.c.resource_type == resource_type)
         if is_published is not None:

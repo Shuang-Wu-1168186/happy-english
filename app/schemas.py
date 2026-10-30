@@ -354,6 +354,7 @@ class LearningTrainingItemInput(Input):
     """One playable item in a training module, such as a podcast episode."""
 
     module_id: int = Field(gt=0)
+    topic_id: int | None = Field(default=None, gt=0)
     resource_type: Literal["podcast", "speaking"] = "podcast"
     item_code: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,99}$")
     title: str = Field(min_length=1, max_length=200)
@@ -661,6 +662,17 @@ class LearningStudySessionStartInput(Input):
 
 class LearningStudySessionFinishInput(Input):
     active_seconds: int | None = Field(default=None, ge=0, le=86400)
+
+
+class VocabularyReviewInput(Input):
+    """One result from the three actions displayed on a vocabulary card."""
+
+    rating: Literal["repeat", "review", "mastered"]
+    duration_millis: int | None = Field(default=None, ge=0, le=600000)
+
+
+class VocabularyCardMarkInput(Input):
+    is_marked: bool
 
 
 def _valid_json_object(value: dict[str, Any], *, field_name: str, max_bytes: int = 20_000):

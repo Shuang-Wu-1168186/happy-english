@@ -75,14 +75,75 @@ class GenericLessonContentService:
 
     def list_for_lesson(self, lesson_id, published_only=False, include_items=True):
         self.require_lesson(lesson_id)
-        result = []
-        for section in self.sections.list_for_lesson(lesson_id, published_only):
-            items = self.items.list_for_section(section["id"], published_only)
+        return self.list_for_lessons(
+            [lesson_id],
+            published_only=published_only,
+            include_items=include_items,
+        ).get(lesson_id, [])
+
+    def list_for_lessons(self, lesson_ids, published_only=False, include_items=True):
+        """Load sections for many lessons with two bounded queries."""
+        lesson_ids = list(dict.fromkeys(lesson_ids))
+        if not lesson_ids:
+            return {}
+
+        section_conditions = [self.sections.table.c.lesson_id.in_(lesson_ids)]
+        if published_only:
+            section_conditions.append(self.sections.table.c.status == "published")
+        section_rows = self.db.execute(
+            select(self.sections.table)
+            .where(*section_conditions)
+            .order_by(self.sections.table.c.lesson_id, self.sections.table.c.sort_order, self.sections.table.c.id)
+        ).mappings().all()
+        sections_by_lesson = {lesson_id: [] for lesson_id in lesson_ids}
+        if not section_rows:
+            return sections_by_lesson
+
+        section_ids = [section["id"] for section in section_rows]
+        item_conditions = [self.sections.table.c.lesson_id.in_(lesson_ids)]
+        if published_only:
+            item_conditions.extend(
+                [
+                    self.sections.table.c.status == "published",
+                    self.items.table.c.status == "published",
+                ]
+            )
+
+        items_by_section = {section_id: [] for section_id in section_ids}
+        if include_items:
+            item_rows = self.db.execute(
+                select(self.items.table)
+                .join(
+                    self.sections.table,
+                    self.sections.table.c.id == self.items.table.c.section_id,
+                )
+                .where(*item_conditions)
+                .order_by(self.items.table.c.section_id, self.items.table.c.item_order, self.items.table.c.id)
+            ).mappings().all()
+            for item in item_rows:
+                items_by_section[item["section_id"]].append(item)
+        else:
+            item_counts = self.db.execute(
+                select(
+                    self.items.table.c.section_id,
+                    func.count(self.items.table.c.id).label("item_count"),
+                )
+                .join(
+                    self.sections.table,
+                    self.sections.table.c.id == self.items.table.c.section_id,
+                )
+                .where(*item_conditions)
+                .group_by(self.items.table.c.section_id)
+            ).all()
+            items_by_section.update({section_id: [None] * count for section_id, count in item_counts})
+
+        for section in section_rows:
+            items = items_by_section[section["id"]]
             entry = {**dict(section), "item_count": len(items)}
             if include_items:
                 entry["items"] = [serialise_item(item) for item in items]
-            result.append(entry)
-        return result
+            sections_by_lesson[section["lesson_id"]].append(entry)
+        return sections_by_lesson
 
     @classmethod
     def validate_sections(cls, sections, require_complete=False):

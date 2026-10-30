@@ -660,6 +660,24 @@ def test_courseware_lesson_publishes_validated_blocks_to_course_learners(client)
     ]
     assert "sources" not in learner_lesson["courseware_blocks"][0]
 
+    catalog = client.get(
+        f"/api/learning/courses/{course.json()['id']}/catalog",
+        headers=learner_headers,
+    )
+    assert catalog.status_code == 200
+    catalog_lesson = catalog.json()["lessons"][0]
+    assert catalog_lesson["id"] == lesson_id
+    assert catalog_lesson["lesson_format"] == "courseware"
+    assert "courseware_blocks" not in catalog_lesson
+    assert "render_payload" not in catalog_lesson
+
+    course_lesson = client.get(
+        f"/api/learning/courses/{course.json()['id']}/lessons/{lesson_id}",
+        headers=learner_headers,
+    )
+    assert course_lesson.status_code == 200
+    assert course_lesson.json()["courseware_blocks"] == learner_lesson["courseware_blocks"]
+
     material_lesson = client.get(
         f"/api/learning/materials/{material_id}/lessons/{lesson_id}",
         headers=learner_headers,

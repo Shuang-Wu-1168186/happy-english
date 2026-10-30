@@ -3,6 +3,7 @@ import json
 import logging
 import re
 from contextlib import asynccontextmanager
+from ipaddress import ip_address
 from time import perf_counter
 from urllib.parse import parse_qs
 
@@ -25,6 +26,8 @@ from app.api import (
     membership,
     private_zone,
     progress,
+    request_audit,
+    vocabulary,
 )
 from app.core.config import Settings
 from app.core.database import configure_sql_logging, make_engine
@@ -76,6 +79,19 @@ def _request_actor_for_log(request: Request):
         return user.get("id"), user.get("username") or "-"
     session = getattr(request.state, "session", {})
     return session.get("uid") or "-", "-"
+
+
+def _request_ip_for_log(request: Request):
+    """Return the client address supplied by the trusted proxy or socket."""
+    candidates = [request.headers.get("X-Real-IP", "")]
+    if request.client:
+        candidates.append(request.client.host)
+    for candidate in candidates:
+        try:
+            return str(ip_address(candidate.strip()))
+        except ValueError:
+            continue
+    return "-"
 
 
 async def _request_input_for_log(request: Request):
@@ -223,10 +239,12 @@ def create_app(settings: Settings | None = None, engine=None):
             request.state.session = read_session(request)
             request_input = await _request_input_for_log(request)
             actor_user_id, actor_username = _request_actor_for_log(request)
+            request_ip = _request_ip_for_log(request)
             logger.info(
-                "http.request.input actor_user_id=%s actor_username=%s method=%s path=%s data=%s",
+                "http.request.input actor_user_id=%s actor_username=%s ip=%s method=%s path=%s data=%s",
                 actor_user_id,
                 actor_username,
+                request_ip,
                 request.method,
                 request.url.path,
                 _json_for_log(request_input),
@@ -260,10 +278,12 @@ def create_app(settings: Settings | None = None, engine=None):
             return response
         except Exception as exc:
             actor_user_id, actor_username = _request_actor_for_log(request)
+            request_ip = _request_ip_for_log(request)
             logger.error(
-                "http.request.failed actor_user_id=%s actor_username=%s method=%s path=%s error_type=%s duration_ms=%.1f",
+                "http.request.failed actor_user_id=%s actor_username=%s ip=%s method=%s path=%s error_type=%s duration_ms=%.1f",
                 actor_user_id,
                 actor_username,
+                request_ip,
                 request.method,
                 request.url.path,
                 type(exc).__name__,
@@ -285,6 +305,7 @@ def create_app(settings: Settings | None = None, engine=None):
                 )
             if response is not None and is_api_request:
                 actor_user_id, actor_username = _request_actor_for_log(request)
+                request_ip = _request_ip_for_log(request)
                 duration_ms = (perf_counter() - started_at) * 1000
                 message = "http.request.completed"
                 log_method = logger.info
@@ -296,10 +317,11 @@ def create_app(settings: Settings | None = None, engine=None):
                 elif response.status_code >= 400:
                     log_method = logger.warning
                 log_method(
-                    "%s actor_user_id=%s actor_username=%s method=%s path=%s status=%d duration_ms=%.1f",
+                    "%s actor_user_id=%s actor_username=%s ip=%s method=%s path=%s status=%d duration_ms=%.1f",
                     message,
                     actor_user_id,
                     actor_username,
+                    request_ip,
                     request.method,
                     request.url.path,
                     response.status_code,
@@ -353,6 +375,8 @@ def create_app(settings: Settings | None = None, engine=None):
     app.include_router(private_zone.router, prefix="/api")
     app.include_router(learning_progress.router, prefix="/api")
     app.include_router(progress.router, prefix="/api")
+    app.include_router(request_audit.router, prefix="/api")
+    app.include_router(vocabulary.router, prefix="/api")
     app.include_router(audio.router, prefix="/api")
     settings.static_dir.mkdir(parents=True, exist_ok=True)
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)

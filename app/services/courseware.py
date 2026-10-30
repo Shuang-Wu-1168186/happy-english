@@ -53,6 +53,7 @@ class CoursewareBlockService:
             "wordly_wise_comprehension",
             "wordly_wise_extension",
             "wordly_wise_review",
+            "wordly_wise_text_exercise",
         }
     )
 
@@ -131,6 +132,10 @@ class CoursewareBlockService:
     def _validate_wordly_wise_payload(cls, block_type, payload):
         label = block_type
         cls._wordly_wise_source(payload, label)
+        if block_type == "hero":
+            cls._string(payload, "phrase", label)
+            cls._string(payload, "meaning", label)
+            return
         if block_type in {"wordly_wise_meaning_match", "wordly_wise_application"}:
             cls._string(payload, "intro", label)
             cls._wordly_wise_quiz_items(payload, label)
@@ -157,6 +162,10 @@ class CoursewareBlockService:
                 cls._string(paragraph, "english", f"{label}.paragraphs[{index}]")
                 cls._string(paragraph, "chinese", f"{label}.paragraphs[{index}]")
             return
+        if block_type == "wordly_wise_text_exercise":
+            cls._string(payload, "intro", label, required=False)
+            cls._string(payload, "raw_text", label)
+            return
         if block_type == "wordly_wise_comprehension":
             cls._string(payload, "intro", label)
             for index, item in enumerate(cls._list(payload, "items", label), start=1):
@@ -175,8 +184,26 @@ class CoursewareBlockService:
                 cls._string(form, "definition", f"{label}.forms[{index}]")
             return
         if block_type == "wordly_wise_review":
-            for key in ("intro", "riddle", "riddle_answer"):
-                cls._string(payload, key, label)
+            cls._string(payload, "intro", label)
+            review_kind = payload.get("review_kind")
+            if review_kind is not None:
+                if review_kind not in {"hidden_message", "crossword", "clue_list"}:
+                    raise HTTPException(422, f"{label}.review_kind must be hidden_message, crossword, or clue_list.")
+                cls._string(payload, "title", label)
+                # Existing Lesson 1 review data has no review_kind and remains
+                # a Hidden Message.  Crossword pages have no riddle in the
+                # source book, so accept their intentionally empty fields.
+                if review_kind == "hidden_message":
+                    cls._string(payload, "riddle", label)
+                    cls._string(payload, "riddle_answer", label)
+                else:
+                    for key in ("riddle", "riddle_answer"):
+                        value = payload.get(key, "")
+                        if not isinstance(value, str):
+                            raise HTTPException(422, f"{label}.{key} must be text.")
+            else:
+                for key in ("riddle", "riddle_answer"):
+                    cls._string(payload, key, label)
             for index, item in enumerate(cls._list(payload, "items", label), start=1):
                 if not isinstance(item, dict):
                     raise HTTPException(422, f"{label}.items[{index}] must be an object.")
@@ -187,7 +214,9 @@ class CoursewareBlockService:
     def validate_payload(cls, block_type, payload):
         if not isinstance(payload, dict):
             raise HTTPException(422, "payload must be an object.")
-        if block_type in cls.wordly_wise_block_types:
+        if block_type in cls.wordly_wise_block_types or (
+            block_type == "hero" and payload.get("family") == "wordly_wise"
+        ):
             cls._validate_wordly_wise_payload(block_type, payload)
             return
         if block_type == "hero":

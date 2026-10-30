@@ -778,3 +778,78 @@ class MembershipService:
             }
 
         raise HTTPException(404, "Learning course is unavailable.")
+
+    def course_catalog(self, user, course_id):
+        """Return a user-aware, content-free course directory.
+
+        Android uses this lightweight response to render all lesson cards.  It
+        intentionally contains no word lists or courseware blocks; each lesson
+        is retrieved separately when the learner opens it.
+        """
+        course = self.user_courses.courses.require_public(course_id)
+        access = self.user_courses.course_access(user, course)
+        catalog = LearningCatalogService(self.db)
+
+        if access["access_state"] == "available":
+            result = catalog.get_course(
+                course_id,
+                compact_lesson_catalog=True,
+            )
+            result.pop("content", None)
+            return {
+                **result,
+                **access,
+                "preview_lesson_count": None,
+                "requires_membership": course["access_policy"] == "benefit",
+            }
+
+        if access["access_state"] == "locked":
+            preview_lesson_ids = self.user_courses.preview_lesson_ids(course)
+            result = catalog.get_course(
+                course_id,
+                unlocked_lesson_ids=preview_lesson_ids,
+                compact_lesson_catalog=True,
+            )
+            result.pop("content", None)
+            return {
+                **result,
+                "access_state": "preview",
+                "membership_id": None,
+                "access_prompt": access.get("access_prompt"),
+                "preview_lesson_count": sum(
+                    lesson["id"] in preview_lesson_ids
+                    for lesson in result["lessons"]
+                ),
+                "requires_membership": True,
+            }
+
+        raise HTTPException(404, "Learning course is unavailable.")
+
+    def course_lesson(self, user, course_id, lesson_id):
+        """Authorize and return the full payload for one selected lesson."""
+        course = self.user_courses.courses.require_public(course_id)
+        access = self.user_courses.course_access(user, course)
+        catalog = LearningCatalogService(self.db)
+
+        if access["access_state"] == "available":
+            # Preserve the existing enrolment behavior once a learner actually
+            # starts a lesson, without mutating state merely by opening a list.
+            self.user_courses.enroll(user, course_id)
+            return catalog.get_course_lesson(course_id, lesson_id)
+
+        if access["access_state"] == "locked":
+            preview_lesson_ids = self.user_courses.preview_lesson_ids(course)
+            if lesson_id not in preview_lesson_ids:
+                raise HTTPException(
+                    403,
+                    detail=access.get("access_prompt")
+                    or {
+                        "code": "membership_required",
+                        "title": "需要会员权限",
+                        "message": "开通会员后即可继续学习这部分内容。",
+                        "action_text": "查看会员方案",
+                    },
+                )
+            return catalog.get_course_lesson(course_id, lesson_id)
+
+        raise HTTPException(404, "Learning course is unavailable.")

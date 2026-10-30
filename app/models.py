@@ -595,6 +595,12 @@ learning_training_item = Table(
         ForeignKey("learning_module.id", ondelete="RESTRICT"),
         nullable=False,
     ),
+    Column(
+        "topic_id",
+        Integer,
+        ForeignKey("learning_topic.id", ondelete="SET NULL"),
+        nullable=True,
+    ),
     Column("resource_type", String(30), nullable=False, server_default=text("'podcast'")),
     Column("item_code", String(100), nullable=False),
     Column("title", String(200), nullable=False),
@@ -1367,4 +1373,196 @@ Index(
     "idx_analytics_event_name_occurred",
     analytics_event.c.event_name,
     analytics_event.c.occurred_at,
+)
+
+# Vocabulary memory has a small, normalized content model.  A word can be
+# reused across multiple decks, while learner state belongs to the specific
+# deck card a learner studied.
+vocabulary_deck = Table(
+    "vocabulary_deck",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("deck_code", String(100), nullable=False),
+    Column("title", String(200), nullable=False),
+    Column("title_en", String(200), nullable=True),
+    Column("description", Text, nullable=True),
+    Column("category", String(100), nullable=True),
+    Column("cover_image_url", String(500), nullable=True),
+    Column("difficulty_code", String(50), nullable=True),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("is_published", Integer, nullable=False, server_default=text("'1'")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("deck_code", name="uk_vocabulary_deck_code"),
+)
+Index(
+    "idx_vocabulary_deck_published_order",
+    vocabulary_deck.c.is_published,
+    vocabulary_deck.c.sort_order,
+)
+
+vocabulary_word = Table(
+    "vocabulary_word",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("word", String(255), nullable=False),
+    Column("normalized_word", String(255), nullable=False),
+    Column("phonetic_uk", String(255), nullable=True),
+    Column("phonetic_us", String(255), nullable=True),
+    Column("audio_url", String(500), nullable=True),
+    Column("word_level", String(50), nullable=True),
+    Column("tags_json", Text, nullable=True),
+    Column("is_active", Integer, nullable=False, server_default=text("'1'")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("normalized_word", name="uk_vocabulary_word_normalized"),
+)
+Index(
+    "idx_vocabulary_word_active_normalized",
+    vocabulary_word.c.is_active,
+    vocabulary_word.c.normalized_word,
+)
+
+vocabulary_word_sense = Table(
+    "vocabulary_word_sense",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "word_id",
+        Integer,
+        ForeignKey("vocabulary_word.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("part_of_speech", String(32), nullable=True),
+    Column("translation", String(500), nullable=False),
+    Column("definition", Text, nullable=True),
+    Column("memory_hint", Text, nullable=True),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("word_id", "sort_order", name="uk_vocabulary_word_sense_order"),
+)
+Index(
+    "idx_vocabulary_word_sense_word_order",
+    vocabulary_word_sense.c.word_id,
+    vocabulary_word_sense.c.sort_order,
+)
+
+vocabulary_word_example = Table(
+    "vocabulary_word_example",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "sense_id",
+        Integer,
+        ForeignKey("vocabulary_word_sense.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("english_text", Text, nullable=False),
+    Column("chinese_text", Text, nullable=True),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("sense_id", "sort_order", name="uk_vocabulary_word_example_order"),
+)
+Index(
+    "idx_vocabulary_word_example_sense_order",
+    vocabulary_word_example.c.sense_id,
+    vocabulary_word_example.c.sort_order,
+)
+
+vocabulary_deck_word = Table(
+    "vocabulary_deck_word",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column(
+        "deck_id",
+        Integer,
+        ForeignKey("vocabulary_deck.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column(
+        "word_id",
+        Integer,
+        ForeignKey("vocabulary_word.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("sort_order", Integer, nullable=False, server_default=text("'0'")),
+    Column("is_enabled", Integer, nullable=False, server_default=text("'1'")),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("deck_id", "word_id", name="uk_vocabulary_deck_word"),
+    UniqueConstraint("deck_id", "sort_order", name="uk_vocabulary_deck_word_order"),
+)
+Index(
+    "idx_vocabulary_deck_word_deck_enabled_order",
+    vocabulary_deck_word.c.deck_id,
+    vocabulary_deck_word.c.is_enabled,
+    vocabulary_deck_word.c.sort_order,
+)
+
+user_vocabulary_progress = Table(
+    "user_vocabulary_progress",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "deck_word_id",
+        Integer,
+        ForeignKey("vocabulary_deck_word.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("learning_state", String(20), nullable=False, server_default=text("'new'")),
+    Column("mastery_level", Integer, nullable=False, server_default=text("'0'")),
+    Column("is_marked", Integer, nullable=False, server_default=text("'0'")),
+    Column("seen_count", Integer, nullable=False, server_default=text("'0'")),
+    Column("review_count", Integer, nullable=False, server_default=text("'0'")),
+    Column("correct_count", Integer, nullable=False, server_default=text("'0'")),
+    Column("last_rating", String(20), nullable=True),
+    Column("last_reviewed_at", DateTime, nullable=True),
+    Column("next_review_at", DateTime, nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("user_id", "deck_word_id", name="uk_user_vocabulary_progress_card"),
+)
+Index(
+    "idx_user_vocabulary_progress_user_due",
+    user_vocabulary_progress.c.user_id,
+    user_vocabulary_progress.c.next_review_at,
+)
+Index(
+    "idx_user_vocabulary_progress_user_state",
+    user_vocabulary_progress.c.user_id,
+    user_vocabulary_progress.c.learning_state,
+)
+
+vocabulary_review_log = Table(
+    "vocabulary_review_log",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
+    Column(
+        "deck_word_id",
+        Integer,
+        ForeignKey("vocabulary_deck_word.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("rating", String(20), nullable=False),
+    Column("previous_mastery_level", Integer, nullable=False, server_default=text("'0'")),
+    Column("mastery_level", Integer, nullable=False, server_default=text("'0'")),
+    Column("duration_millis", Integer, nullable=True),
+    Column("reviewed_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("next_review_at", DateTime, nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+)
+Index(
+    "idx_vocabulary_review_log_user_card_reviewed",
+    vocabulary_review_log.c.user_id,
+    vocabulary_review_log.c.deck_word_id,
+    vocabulary_review_log.c.reviewed_at,
+)
+Index(
+    "idx_vocabulary_review_log_card_reviewed",
+    vocabulary_review_log.c.deck_word_id,
+    vocabulary_review_log.c.reviewed_at,
 )
