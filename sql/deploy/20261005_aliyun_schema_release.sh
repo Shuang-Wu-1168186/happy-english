@@ -231,11 +231,16 @@ else
   mark_existing "20260926-seed-put-aside-courseware"
 fi
 
+run_once "20261020-configure-wordly-wise-membership" "sql/20261020_configure_wordly_wise_3000_membership_access.sql"
 run_once "20261021-learning-module-type" "sql/20261021_add_learning_module_type.sql"
 run_once "20261021-seed-podcast-training-module" "sql/20261021_seed_podcast_training_module.sql"
 run_once "20261022-learning-training-items" "sql/20261022_add_learning_training_items.sql"
+run_once "20261022-seed-minecraft-english-adventure-lesson-01" "sql/20261022_seed_minecraft_english_adventure_lesson_01.sql"
 run_once "20261023-seed-audio-podcast-items" "sql/20261023_seed_audio_podcast_items.sql"
+run_once "20261024-move-idiomatic-english-to-elementary" "sql/20261024_move_idiomatic_english_to_elementary.sql"
 run_once "20261026-seed-nz-economy-podcast" "sql/20261026_seed_nz_economy_podcast.sql"
+run_once "20261026-retire-empty-wordly-wise-beginner-topic" "sql/20261026_retire_empty_wordly_wise_beginner_topic.sql"
+run_once "20261027-seed-seven-day-trial-membership" "sql/20261027_seed_seven_day_trial_membership.sql"
 run_once "20261029-group-podcast-training-items" "sql/20261029_group_podcast_training_items.sql"
 run_once "20261030-vocabulary-memory" "sql/20261030_add_vocabulary_memory.sql"
 
