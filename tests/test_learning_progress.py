@@ -173,7 +173,7 @@ def test_completed_courseware_lesson_is_available_for_review(client):
     )
     assert saved.status_code == 200
 
-    review = client.get("/api/learning/review-items?days=7&limit=6", headers=learner_headers)
+    review = client.get("/api/learning/review-items?days=7&limit=10", headers=learner_headers)
     assert review.status_code == 200
     course_item = next(item for item in review.json()["items"] if item["resource"] == "course-lessons")
     assert course_item["label"] == "课程复习 · 餐厅英语"

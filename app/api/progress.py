@@ -20,7 +20,7 @@ def recent_review_items(
     db: Db,
     user: User,
     days: int = Query(default=7, ge=1, le=30),
-    limit: int = Query(default=3, ge=1, le=6),
+    limit: int = Query(default=3, ge=1, le=10),
 ):
     return StudyProgressService(db).recent_review_items(user, days, limit)
 
