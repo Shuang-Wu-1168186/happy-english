@@ -277,6 +277,10 @@ class OpaqueIdRoute(APIRoute):
                 if request.url.path.startswith("/api/analytics/")
                 else frozenset()
             )
+            if request.url.path.startswith("/api/game/v1/water-sort/"):
+                # Game commands carry client UUIDs and random quiz option codes,
+                # not integer database keys. Scope this exception to this API.
+                analytics_passthrough = frozenset({"request_id", "challenge_id", "question_id", "option_id"})
             try:
                 for name in integer_path_id_names:
                     request.scope["path_params"][name] = str(

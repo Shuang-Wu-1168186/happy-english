@@ -26,8 +26,10 @@ from app.api import (
     membership,
     private_zone,
     progress,
+    review,
     request_audit,
     vocabulary,
+    water_sort,
 )
 from app.core.config import Settings
 from app.core.database import configure_sql_logging, make_engine
@@ -39,6 +41,7 @@ from app.core.logging import (
     reset_request_id,
 )
 from app.core.security import SESSION_HEADER, read_session
+from app.services.review_ai import DeepSeekReviewQuestionGenerator
 from app.services.wechat import WeChatMiniProgramClient
 
 
@@ -50,6 +53,23 @@ _SENSITIVE_LOG_KEY = re.compile(
     r"(?:password|passwd|secret|token|authorization|cookie|csrf|api[_-]?key|access[_-]?key|signature)",
     re.IGNORECASE,
 )
+
+
+def _redact_review_request(path, body):
+    """Keep review diagnostics without copying learner content or answers."""
+
+    if not path.startswith("/api/learning/review-sessions") or not isinstance(body, dict):
+        return body
+    if path.endswith("/answers"):
+        return {
+            "omitted": "review answer",
+            "has_question_id": bool(body.get("question_id")),
+        }
+    return {
+        key: body[key]
+        for key in ("days", "limit", "source_types")
+        if key in body
+    }
 
 
 def _redact_log_value(value, key=None):
@@ -145,6 +165,14 @@ async def _request_input_for_log(request: Request):
                     "omitted": "analytics payload",
                     "event_count": len(events) if isinstance(events, list) else 0,
                 }
+            if request.url.path.startswith("/api/learning/review-sessions"):
+                result["body"] = _redact_review_request(
+                    request.url.path,
+                    result["body"],
+                )
+            if request.url.path.startswith("/api/game/v1/water-sort"):
+                payload = result["body"] if isinstance(result["body"], dict) else {}
+                result["body"] = {key: payload[key] for key in ("action", "level_number", "revision") if key in payload}
         except (UnicodeDecodeError, json.JSONDecodeError):
             result["body"] = {"omitted": "invalid JSON body", "bytes": len(body)}
     elif content_type == "application/x-www-form-urlencoded":
@@ -211,6 +239,9 @@ def create_app(settings: Settings | None = None, engine=None):
             close_wechat = getattr(app.state.wechat_miniprogram, "close", None)
             if close_wechat:
                 close_wechat()
+            close_review_ai = getattr(app.state.review_question_generator, "close", None)
+            if close_review_ai:
+                close_review_ai()
             engine.dispose()
             logger.info("app.lifespan.stopped")
 
@@ -225,6 +256,7 @@ def create_app(settings: Settings | None = None, engine=None):
     app.state.settings = settings
     app.state.engine = engine
     app.state.wechat_miniprogram = WeChatMiniProgramClient(settings)
+    app.state.review_question_generator = DeepSeekReviewQuestionGenerator(settings)
 
     @app.middleware("http")
     async def session_and_csrf(request: Request, call_next):
@@ -262,6 +294,13 @@ def create_app(settings: Settings | None = None, engine=None):
                 response = await call_next(request)
             response = await _materialise_text_response_for_log(response)
             response_output = _response_output_for_log(response)
+            if request.url.path.startswith("/api/learning/review-sessions"):
+                response_output = {
+                    "omitted": "learning review payload",
+                    "status_code": response.status_code,
+                }
+            if request.url.path.startswith("/api/game/v1/water-sort"):
+                response_output = {"omitted": "game learning payload", "status_code": response.status_code}
             if is_api_request:
                 response.headers["Cache-Control"] = "no-store"
             response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -375,8 +414,10 @@ def create_app(settings: Settings | None = None, engine=None):
     app.include_router(private_zone.router, prefix="/api")
     app.include_router(learning_progress.router, prefix="/api")
     app.include_router(progress.router, prefix="/api")
+    app.include_router(review.router, prefix="/api")
     app.include_router(request_audit.router, prefix="/api")
     app.include_router(vocabulary.router, prefix="/api")
+    app.include_router(water_sort.router, prefix="/api")
     app.include_router(audio.router, prefix="/api")
     settings.static_dir.mkdir(parents=True, exist_ok=True)
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)

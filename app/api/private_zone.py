@@ -83,6 +83,11 @@ def list_private_notes(db: Db, user: User):
     return PrivateZoneService(db).list_notes(user)
 
 
+@router.get("/learning/private-zone/notes/{note_id}")
+def get_private_note(note_id: int, db: Db, user: User):
+    return PrivateZoneService(db).get_note(note_id, user)
+
+
 @router.post("/learning/private-zone/notes", status_code=201)
 def create_private_note(payload: PrivateZoneNoteInput, db: Db, user: User):
     return PrivateZoneService(db).create_note(payload, user)

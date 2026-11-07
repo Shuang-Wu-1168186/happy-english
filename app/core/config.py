@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     session_seconds: int = Field(default=43200, ge=60)
     app_session_seconds: int = Field(default=7 * 24 * 60 * 60, ge=60)
     audio_enabled: bool = False
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_review_model: str = "deepseek-chat"
+    deepseek_request_timeout_seconds: float = Field(default=20, ge=1, le=60)
+    deepseek_review_max_candidates: int = Field(default=40, ge=1, le=100)
     wechat_miniprogram_app_id: str = ""
     wechat_miniprogram_app_secret: str = ""
     wechat_request_timeout_seconds: float = Field(default=10, ge=1, le=60)

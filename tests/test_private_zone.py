@@ -172,11 +172,100 @@ def test_private_zone_features_and_family_items_are_scoped(client):
         if item["resource"]["resource_type"] == "note"
     }
     assert family_note_id in member_note_ids
-    assert personal_note_id not in member_note_ids
+    assert personal_note_id in member_note_ids
 
     public_notes = client.get("/api/content/notes", headers=member_headers)
     assert public_notes.status_code == 200
     assert personal_note_id not in {item["id"] for item in public_notes.json()["items"]}
+
+
+def test_family_members_can_read_but_not_edit_personal_english_notes(client):
+    admin_headers = sign_in(client)
+    family_member = create_family_member(client, admin_headers)
+    owner_headers = sign_in(client, "learner_test")
+    group = client.post(
+        "/api/learning/family-groups",
+        headers=owner_headers,
+        json={"name": "英语共读家庭"},
+    )
+    assert group.status_code == 201
+    invite = client.post(
+        f"/api/learning/family-groups/{group.json()['id']}/invite-code",
+        headers=owner_headers,
+    )
+    assert invite.status_code == 200
+    member_headers = sign_in(client, family_member["username"])
+    joined = client.post(
+        "/api/learning/family-groups/join",
+        headers=member_headers,
+        json={"invite_code": invite.json()["invite_code"]},
+    )
+    assert joined.status_code == 200
+
+    owner_headers = sign_in(client, "learner_test")
+    created = client.post(
+        "/api/learning/private-zone/notes",
+        headers=owner_headers,
+        json={
+            "note_date": "2026-11-08",
+            "title": "我的个人英文笔记",
+            "summary": "家庭成员可以阅读。",
+            "scope_type": "personal",
+        },
+    )
+    assert created.status_code == 201
+    note_id = created.json()["note"]["id"]
+    card = client.post(
+        f"/api/learning/private-zone/notes/{note_id}/items",
+        headers=owner_headers,
+        json={
+            "item_title": "询问天气",
+            "raw_text": "How is the weather today?",
+            "english_text": "How is the weather today?",
+            "chinese_text": "今天天气怎么样？",
+        },
+    )
+    assert card.status_code == 201
+    card_id = card.json()["resource"]["id"]
+
+    member_headers = sign_in(client, family_member["username"])
+    visible_notes = client.get(
+        "/api/learning/private-zone/notes",
+        headers=member_headers,
+    )
+    assert note_id in {note["id"] for note in visible_notes.json()["items"]}
+    detail = client.get(
+        f"/api/learning/private-zone/notes/{note_id}",
+        headers=member_headers,
+    )
+    assert detail.status_code == 200
+    assert detail.json()["items"][0]["english_text"] == "How is the weather today?"
+
+    shared_items = client.get(
+        "/api/learning/private-zone/items",
+        headers=member_headers,
+    )
+    assert any(
+        item["resource"]["id"] == note_id
+        and item["source"]["label"] == "家庭成员"
+        for item in shared_items.json()["items"]
+    )
+    assert any(
+        item["resource"]["id"] == card_id
+        and item["resource"]["resource_type"] == "note_item"
+        for item in shared_items.json()["items"]
+    )
+    forbidden = client.post(
+        f"/api/learning/private-zone/notes/{note_id}/items",
+        headers=member_headers,
+        json={
+            "item_title": "不应新增",
+            "raw_text": "This must not be saved.",
+            "english_text": "This must not be saved.",
+            "chinese_text": "这不应被保存。",
+        },
+    )
+    assert forbidden.status_code == 403
 
 
 def test_only_family_creator_can_rename_a_family_group(client):

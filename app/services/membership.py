@@ -27,6 +27,11 @@ from app.core.time import utc_now_naive
 # units), rather than raw sentences, cards, or dialogue lines.
 FREE_PREVIEW_LESSON_COUNT = 2
 
+# Stable code used by product features, rather than a course entitlement.  A
+# plan must explicitly include this benefit before its members can use AI to
+# select and enrich review questions.
+REVIEW_AI_BENEFIT_CODE = "ai-review-generation"
+
 def serialise_membership(row):
     """Decode persisted JSON values into the API fields used by the admin UI."""
     result = dict(row)
@@ -486,6 +491,75 @@ class MembershipService:
     def require_legacy_content_access(self, user, resource):
         if not self.can_open_legacy_content(user, resource):
             raise HTTPException(403, "请从课程页面进入会员学习内容。")
+
+    def has_feature_access(self, user, benefit_code):
+        """Return whether a user has one active, enabled feature benefit.
+
+        Feature benefits are deliberately separate from course access.  This
+        lets a plan include a paid capability (such as AI-generated review
+        questions) without coupling it to every course the learner can open.
+        Administrators retain access so they can verify the member experience.
+        """
+
+        if user["role"] == "admin":
+            return True
+
+        memberships = self.user_memberships.dao.active_for_user(user["id"])
+        if not memberships:
+            return False
+
+        benefit = self.db.execute(
+            select(
+                m.membership_benefit.c.id,
+                m.membership_benefit.c.benefit_type,
+                m.membership_benefit.c.value_type,
+                m.membership_benefit.c.default_value_json,
+            ).where(
+                m.membership_benefit.c.benefit_code == benefit_code,
+                m.membership_benefit.c.status == "active",
+            )
+        ).mappings().first()
+        if not benefit or benefit["benefit_type"] != "feature_access":
+            return False
+
+        grants = self.db.execute(
+            select(m.membership_plan_benefit.c.grant_value_json)
+            .where(
+                m.membership_plan_benefit.c.membership_plan_id.in_(
+                    [membership["membership_plan_id"] for membership in memberships]
+                ),
+                m.membership_plan_benefit.c.benefit_id == benefit["id"],
+                m.membership_plan_benefit.c.is_enabled == 1,
+            )
+        ).scalars().all()
+        return any(
+            self._feature_grant_enabled(
+                grant_value,
+                benefit["value_type"],
+                benefit["default_value_json"],
+            )
+            for grant_value in grants
+        )
+
+    @staticmethod
+    def _feature_grant_enabled(grant_value_json, value_type, default_value_json):
+        """Resolve a feature mapping's configured value without trusting JSON."""
+
+        raw_value = (
+            grant_value_json
+            if grant_value_json is not None
+            else default_value_json
+        )
+        try:
+            value = json.loads(raw_value) if raw_value is not None else None
+        except (TypeError, ValueError):
+            return False
+        if value_type == "boolean":
+            return value is True
+        # The review capability is boolean today.  Keeping non-boolean feature
+        # values enabled avoids making this helper unexpectedly deny valid
+        # feature types introduced by future membership plans.
+        return value is not None
 
     @staticmethod
     def _none_when_blank(values, fields):

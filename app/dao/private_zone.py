@@ -73,6 +73,32 @@ class FamilyGroupMemberDAO(BaseTableDAO):
             .order_by(self.table.c.family_group_id)
         ).all()
 
+    def active_peer_user_ids(self, user_id):
+        """Return users who share at least one active family with ``user_id``."""
+
+        peer = self.table.alias("family_group_peer")
+        return self.db.scalars(
+            select(peer.c.user_id)
+            .select_from(
+                self.table.join(
+                    peer,
+                    peer.c.family_group_id == self.table.c.family_group_id,
+                ).join(
+                    m.family_group,
+                    m.family_group.c.id == self.table.c.family_group_id,
+                )
+            )
+            .where(
+                self.table.c.user_id == user_id,
+                self.table.c.status == "active",
+                peer.c.status == "active",
+                peer.c.user_id != user_id,
+                m.family_group.c.status == "active",
+            )
+            .distinct()
+            .order_by(peer.c.user_id)
+        ).all()
+
 
 class PrivateZoneFeatureDAO(BaseTableDAO):
     table = m.private_zone_feature
@@ -112,7 +138,7 @@ class PrivateZoneItemDAO(BaseTableDAO):
             conditions.append(self.table.c.family_group_id == family_group_id)
         return self.db.execute(select(self.table).where(*conditions)).mappings().first()
 
-    def list_for_user(self, user_id, family_group_ids):
+    def list_for_user(self, user_id, family_group_ids, shared_note_owner_ids=()):
         personal = and_(
             self.table.c.scope_type == "personal",
             self.table.c.owner_user_id == user_id,
@@ -121,9 +147,18 @@ class PrivateZoneItemDAO(BaseTableDAO):
             self.table.c.scope_type == "family",
             self.table.c.family_group_id.in_(family_group_ids),
         )
+        conditions = [personal, family]
+        if shared_note_owner_ids:
+            conditions.append(
+                and_(
+                    self.table.c.scope_type == "personal",
+                    self.table.c.owner_user_id.in_(shared_note_owner_ids),
+                    self.table.c.resource_type.in_(("note", "note_item")),
+                )
+            )
         return self.list_where(
             self.table.c.status == "active",
-            or_(personal, family),
+            or_(*conditions),
             order_by=[self.table.c.sort_order, self.table.c.created_at, self.table.c.id],
         )
 

@@ -172,6 +172,12 @@ else
   run_once "20260925-learning-progress" "sql/20260925_redesign_learning_progress.sql"
 fi
 
+if has_all_tables "learning_review_session" "learning_review_question"; then
+  mark_existing "20261103-learning-review-sessions"
+else
+  run_once "20261103-learning-review-sessions" "sql/20261103_add_learning_review_sessions.sql"
+fi
+
 if has_all_tables \
     "learning_material" "learning_material_lesson" "learning_course_material" \
     "membership_plan" "membership_benefit" "membership_plan_benefit" \
@@ -243,6 +249,7 @@ run_once "20261026-retire-empty-wordly-wise-beginner-topic" "sql/20261026_retire
 run_once "20261027-seed-seven-day-trial-membership" "sql/20261027_seed_seven_day_trial_membership.sql"
 run_once "20261029-group-podcast-training-items" "sql/20261029_group_podcast_training_items.sql"
 run_once "20261030-vocabulary-memory" "sql/20261030_add_vocabulary_memory.sql"
+run_once "20261106-ai-review-membership-benefit" "sql/20261106_add_ai_review_membership_benefit.sql"
 
 if has_table "learning_course_material"; then
   mark_existing "20260927-course-material-mapping"

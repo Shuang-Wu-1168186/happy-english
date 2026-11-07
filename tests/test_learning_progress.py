@@ -1,4 +1,5 @@
 from tests.conftest import opaque_id, sign_in
+from app import models as m
 from app.services.progress import StudyProgressService
 
 
@@ -179,6 +180,81 @@ def test_completed_courseware_lesson_is_available_for_review(client):
     assert course_item["label"] == "课程复习 · 餐厅英语"
     assert course_item["prompt"] == "I'd like to make a reservation."
     assert course_item["answer"] == "我想预订座位。"
+
+    session = client.post(
+        "/api/learning/review-sessions",
+        headers=learner_headers,
+        json={"days": 7, "limit": 10},
+    )
+    assert session.status_code == 201
+    course_question = next(
+        question
+        for question in session.json()["questions"]
+        if question["source"]["type"] == "material_lesson"
+    )
+    assert course_question["source_label"] == "教材例句 · 餐厅英语"
+    assert course_question["prompt"] == "我想预订座位。"
+    assert "correct_answer" not in course_question
+
+    graded = client.post(
+        f"/api/learning/review-sessions/{session.json()['id']}/answers",
+        headers=learner_headers,
+        json={
+            "question_id": course_question["id"],
+            "answer": "I'd like to make a reservation",
+        },
+    )
+    assert graded.status_code == 200
+    assert graded.json()["is_correct"] is True
+    assert graded.json()["correct_answer"] == "I'd like to make a reservation."
+
+
+def test_review_session_prefers_note_examples_and_normalizes_answer_format(client):
+    with client.app.state.engine.begin() as connection:
+        connection.execute(
+            m.english_note_item.update()
+            .where(m.english_note_item.c.id == 1)
+            .values(
+                examples="Could you wait for me?\n你能等我一下吗？",
+                explanation="用于请对方稍等。",
+            )
+        )
+
+    learner_headers = sign_in(client, "learner_test")
+    saved = client.post(
+        "/api/progress",
+        headers=learner_headers,
+        json={
+            "content_type": "english_note",
+            "parent_id": opaque_id(client, 1),
+            "item_id": opaque_id(client, 1),
+        },
+    )
+    assert saved.status_code == 200
+
+    session = client.post(
+        "/api/learning/review-sessions",
+        headers=learner_headers,
+        json={"days": 7, "limit": 10},
+    )
+    assert session.status_code == 201
+    example = next(
+        question
+        for question in session.json()["questions"]
+        if question["prompt"] == "你能等我一下吗？"
+    )
+    assert example["source_label"] == "英语笔记 · Daily practice"
+    assert example["instruction"] == "根据中文写出你学过的英文表达。"
+    assert "correct_answer" not in example
+
+    graded = client.post(
+        f"/api/learning/review-sessions/{session.json()['id']}/answers",
+        headers=learner_headers,
+        json={"question_id": example["id"], "answer": "could you wait for me"},
+    )
+    assert graded.status_code == 200
+    assert graded.json()["is_correct"] is True
+    assert graded.json()["correct_answer"] == "Could you wait for me?"
 
 
 def test_structured_lesson_review_uses_a_published_dialogue_turn():

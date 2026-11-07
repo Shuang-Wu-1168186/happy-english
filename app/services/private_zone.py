@@ -155,6 +155,9 @@ class FamilyGroupService:
     def group_ids_for_user(self, user_id):
         return self.members.active_group_ids_for_user(user_id)
 
+    def shared_member_ids_for_user(self, user_id):
+        return self.members.active_peer_user_ids(user_id)
+
     def managed_group_ids_for_user(self, user_id):
         return [
             group["id"]
@@ -500,7 +503,10 @@ class PrivateZoneService:
         if scope_type == "platform":
             return admin or note.get("share_status") == 1
         if scope_type == "personal":
-            return note.get("owner_user_id") == user_id
+            owner_user_id = note.get("owner_user_id")
+            return owner_user_id == user_id or (
+                owner_user_id in self.family_groups.shared_member_ids_for_user(user_id)
+            )
         if scope_type == "family":
             group_id = note.get("family_group_id")
             return bool(
@@ -586,11 +592,20 @@ class PrivateZoneService:
         if item["scope_type"] == "family":
             group = self.family_groups.require_group(item["family_group_id"])
         access = resource.get("access", {"access_state": "available"})
+        is_shared_personal_note = (
+            item["scope_type"] == "personal"
+            and item.get("owner_user_id") != user["id"]
+            and item["resource_type"] in {"note", "note_item"}
+        )
         return {
             **dict(item),
             "source": {
                 "scope_type": item["scope_type"],
-                "label": "个人" if item["scope_type"] == "personal" else "家庭",
+                "label": (
+                    "家庭成员"
+                    if is_shared_personal_note
+                    else "个人" if item["scope_type"] == "personal" else "家庭"
+                ),
                 "family_group_id": item["family_group_id"],
                 "family_group_name": group["name"] if group else None,
             },
@@ -601,9 +616,14 @@ class PrivateZoneService:
 
     def list_items(self, user):
         group_ids = self.family_groups.group_ids_for_user(user["id"])
+        shared_note_owner_ids = self.family_groups.shared_member_ids_for_user(user["id"])
         items = [
             self._item_view(item, user)
-            for item in self.items.dao.list_for_user(user["id"], group_ids)
+            for item in self.items.dao.list_for_user(
+                user["id"],
+                group_ids,
+                shared_note_owner_ids,
+            )
         ]
         return {"items": items}
 
@@ -916,11 +936,16 @@ class PrivateZoneService:
 
     def list_notes(self, user):
         group_ids = self.family_groups.group_ids_for_user(user["id"])
+        shared_note_owner_ids = self.family_groups.shared_member_ids_for_user(user["id"])
         conditions = [
             or_(
                 and_(
                     m.english_note.c.scope_type == "personal",
                     m.english_note.c.owner_user_id == user["id"],
+                ),
+                and_(
+                    m.english_note.c.scope_type == "personal",
+                    m.english_note.c.owner_user_id.in_(shared_note_owner_ids),
                 ),
                 and_(
                     m.english_note.c.scope_type == "family",
@@ -935,10 +960,33 @@ class PrivateZoneService:
         ).mappings().all()
         return {"items": [serialise_content(row) for row in rows]}
 
+    def get_note(self, note_id, user):
+        """Return one readable private English note and its cards.
+
+        The access check deliberately permits a shared-family reader, while
+        mutation methods below still verify that the reader owns the note.
+        """
+
+        note = self._require_note_access(note_id, user)
+        rows = self.note_items.list_for_parent(
+            "note_id",
+            note_id,
+            visibility_conditions=[],
+        )
+        return {
+            **serialise_content(note),
+            "items": [serialise_content(row) for row in rows],
+        }
+
     def create_note_item(self, note_id, payload: s.PrivateZoneNoteItemInput, user):
         note = self._require_note_access(note_id, user)
         if note.get("scope_type") not in {"personal", "family"}:
             raise HTTPException(422, "Only personal or family notes can be edited here.")
+        if (
+            note.get("scope_type") == "personal"
+            and note.get("owner_user_id") != user["id"]
+        ):
+            raise HTTPException(403, "You can read, but cannot edit another family member's private note.")
         values = payload.model_dump()
         values.update(
             {

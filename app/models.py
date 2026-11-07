@@ -16,8 +16,30 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.mysql import BIGINT, MEDIUMTEXT
 
 metadata = MetaData()
+
+# Explicit migration: sql/20261105_add_water_sort_game.sql. MEDIUMTEXT keeps
+# full campaign progress and bounded move histories below MySQL's column limit.
+game_water_sort_progress = Table(
+    "game_water_sort_progress", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer().with_variant(BIGINT(unsigned=True), "mysql"), ForeignKey("user.id", ondelete="CASCADE"), nullable=False, unique=True),
+    Column("state_json", Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=False),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+)
+
+game_water_sort_attempt = Table(
+    "game_water_sort_attempt", metadata,
+    Column("id", String(36), primary_key=True),
+    Column("user_id", Integer().with_variant(BIGINT(unsigned=True), "mysql"), ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
+    Column("level_number", Integer, nullable=False),
+    Column("state_json", Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=False),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+)
+Index("idx_game_water_sort_attempt_user", game_water_sort_attempt.c.user_id, game_water_sort_attempt.c.created_at)
 
 english_note = Table(
     "english_note",
@@ -1288,6 +1310,70 @@ Index(
     learning_study_session.c.ended_at,
 )
 
+# A review session snapshots the prompts selected for one learner.  The
+# canonical answers remain server-side until a learner submits an attempt, so
+# clients cannot reveal an answer simply by inspecting the session payload.
+learning_review_session = Table(
+    "learning_review_session",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False),
+    Column("source_window_days", Integer, nullable=False, server_default=text("'7'")),
+    Column(
+        "source_types_json",
+        String(80),
+        nullable=False,
+        server_default=text("""'["notes","textbooks"]'"""),
+    ),
+    Column(
+        "generator_provider",
+        String(50),
+        nullable=False,
+        server_default=text("'deterministic'"),
+    ),
+    Column("generator_model", String(100), nullable=True),
+    Column("question_count", Integer, nullable=False, server_default=text("'0'")),
+    Column("completed_at", DateTime, nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+)
+Index(
+    "idx_learning_review_session_user_created",
+    learning_review_session.c.user_id,
+    learning_review_session.c.created_at,
+)
+
+learning_review_question = Table(
+    "learning_review_question",
+    metadata,
+    Column(
+        "session_id",
+        Integer,
+        ForeignKey("learning_review_session.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("id", Integer, primary_key=True),
+    Column("source_type", String(50), nullable=False),
+    Column("source_id", Integer, nullable=True),
+    Column("source_parent_id", Integer, nullable=True),
+    Column("source_label", String(255), nullable=False),
+    Column("source_locator", String(255), nullable=True),
+    Column("question_type", String(50), nullable=False, server_default=text("'translate_to_english'")),
+    Column("answer_mode", String(50), nullable=False, server_default=text("'normalized_exact'")),
+    Column("prompt", Text, nullable=False),
+    Column("context_text", Text, nullable=True),
+    Column("reference_answer", Text, nullable=False),
+    Column("accepted_answers_json", Text, nullable=False),
+    Column("explanation", Text, nullable=True),
+    Column("question_order", Integer, nullable=False),
+    Column("attempt_count", Integer, nullable=False, server_default=text("'0'")),
+    Column("submitted_answer", Text, nullable=True),
+    Column("is_correct", Integer, nullable=True),
+    Column("answered_at", DateTime, nullable=True),
+    Column("created_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    Column("updated_at", DateTime, nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    UniqueConstraint("session_id", "question_order"),
+)
 # App-shell configuration is separate from the learning catalogue so new
 # presentation choices can be published without changing a course, topic, or
 # material record used by existing clients.

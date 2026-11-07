@@ -664,6 +664,31 @@ class LearningStudySessionFinishInput(Input):
     active_seconds: int | None = Field(default=None, ge=0, le=86400)
 
 
+class LearningReviewSessionInput(Input):
+    """Request a short, server-owned active-recall review session."""
+
+    days: int = Field(default=7, ge=1, le=30)
+    limit: int = Field(default=10, ge=1, le=20)
+    source_types: list[Literal["notes", "textbooks"]] = Field(
+        default_factory=lambda: ["notes", "textbooks"],
+        min_length=1,
+        max_length=2,
+    )
+
+    @field_validator("source_types")
+    @classmethod
+    def unique_source_types(cls, value):
+        if len(set(value)) != len(value):
+            raise ValueError("source_types must not contain duplicates.")
+        return value
+
+
+class LearningReviewAnswerInput(Input):
+    question_id: int = Field(gt=0)
+    answer: str = Field(min_length=1, max_length=5000)
+    elapsed_millis: int | None = Field(default=None, ge=0, le=3_600_000)
+
+
 class VocabularyReviewInput(Input):
     """One result from the three actions displayed on a vocabulary card."""
 

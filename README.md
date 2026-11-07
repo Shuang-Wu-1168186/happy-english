@@ -94,6 +94,22 @@ WECHAT_REQUEST_TIMEOUT_SECONDS=10
 
 已有数据库还需要先执行一次 [20260925_add_miniprogram_phone_login.sql](sql/20260925_add_miniprogram_phone_login.sql)。该脚本会将空联系方式转为 `NULL` 并为手机号建立唯一索引；执行前先处理脚本查询出的重复手机号。
 
+### DeepSeek 复习出题
+
+`POST /api/learning/review-sessions` 从学习者近期学习过的 English Note 和已完成教材课时中抽取双语例句。请求中的 `source_types` 可设为 `["notes"]`、`["textbooks"]` 或两者并存。服务端启用 DeepSeek 后，由模型选择更有代表性的例句并提供等价答案与解析；标准答案仍取自原始笔记或教材，模型故障会自动回退到本地抽题。
+
+密钥只配置在后端 `.env`，不要放入 Android、网页或提交到代码库：
+
+```sh
+DEEPSEEK_API_KEY=sk-...
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_REVIEW_MODEL=deepseek-chat
+DEEPSEEK_REQUEST_TIMEOUT_SECONDS=20
+DEEPSEEK_REVIEW_MAX_CANDIDATES=40
+```
+
+留空 `DEEPSEEK_API_KEY` 时仍可使用确定性的本地复习流程。配置了密钥时，只有拥有 `ai-review-generation` 功能权益的活跃会员会调用 DeepSeek；其余用户继续使用确定性的本地复习流程。服务只发送当前学习者近期已学习内容中的有限双语例句，不发送用户 ID、账号或会话信息；日志只记录模型请求失败类型，不记录提示词、例句或密钥。首次部署会话式复习前需执行 [20261103_add_learning_review_sessions.sql](sql/20261103_add_learning_review_sessions.sql) 和 [20261106_add_ai_review_membership_benefit.sql](sql/20261106_add_ai_review_membership_benefit.sql)。
+
 ### 登录审计表升级
 
 已有数据库在部署本功能前，需要执行一次 [20260920_add_login_audit.sql](sql/20260920_add_login_audit.sql)。前端 Nginx 会覆盖并转发 `X-Forwarded-For`，因此生产环境应只让 Nginx 对外暴露后端服务，避免客户端伪造登录来源地址。
@@ -178,3 +194,18 @@ API /api/health	✅ 正常
 
 FastAPI 中的 app.mount("/static", ...) 可保留作为兜底，但生产流量已由 Nginx 处理
 如后续新增其他静态资源子目录，无需修改 Nginx，/static/ 下所有文件均自动由 Nginx 服务
+
+## 单词之旅游戏 API（已上线）
+
+`https://api.happylingo.cn/api/game/v1/water-sort` 已部署，Android 项目为 `../happylingo-english-game`。复用账号会话、CSRF、会员及两课试听权限；词条直接读取已发布的 Wordly Wise 教材课时，补充中文来源保存在 `app/data/water_sort/translations.json`。
+
+- `GET /progress`：当前账号已完成关卡及已学词。
+- `GET /vocabulary?book=1&offset=0&limit=50`：1–12 册分页词表，按教材访问权限过滤。
+- `POST /levels:next`：`level_number`、`campaign_version: 2`、UUID `request_id`；200 关固定绑定 1,023 个教材词条。
+- `POST /attempts/{attempt_id}/actions`：服务器验证倒水、撤回、重开、确认学习、通关和空瓶问答。使用 `revision` 和 UUID `request_id` 保证重试不会重复执行。
+
+每个游戏账号独立保存进度；题目和选项只用已学词，不下发答案。答对三题发放一支奖励瓶；重开保留奖励瓶，撤回不能复制奖励。增量表位于 `sql/20261105_add_water_sort_game.sql`，MySQL 外键使用与现有 `user.id` 一致的 `BIGINT UNSIGNED`。
+
+现有教材词条总计 3,147 条。Book 4 Lesson 4 原始导入仅 13 条，Book 5 Lesson 7 仅 14 条，尚需校对补齐这三处；未用示例词冒充完整教材。中文优先采用课程已有释义，其余采用 [ECDICT](https://github.com/skywind3000/ECDICT)（MIT，许可证随数据发布）和少量自编释义。
+
+验证：`.venv/bin/pytest -q tests/test_water_sort.py tests/test_architecture.py tests/test_opaque_ids.py`。准备数据使用 `scripts/prepare_water_sort_data.py`；发布使用 `scripts/deploy_water_sort.py`，只上传功能文件并检查服务器已有文件的 SHA256、备份代码、执行增量建表、检查词库和健康状态；失败自动回滚代码。已上传内容不包含 `.env`、用户数据或其他未提交改动。完整客户端契约见相邻游戏项目的 `docs/WATER_SORT_LIVE_API.md`。
